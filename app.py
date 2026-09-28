@@ -1,5 +1,6 @@
 import os
 import sys
+import requests
 from pathlib import Path
 from datetime import datetime
 
@@ -177,6 +178,25 @@ st.markdown("""
         color: #ffffff !important;
     }
 
+    /* Suggestion Chips Button Styling */
+    div[data-testid="column"] div.stButton > button {
+        background: rgba(30, 41, 59, 0.7) !important;
+        border: 1px solid rgba(168, 85, 247, 0.3) !important;
+        color: #e2e8f0 !important;
+        font-size: 0.84rem !important;
+        font-weight: 500 !important;
+        padding: 0.45rem 0.8rem !important;
+        border-radius: 10px !important;
+        box-shadow: none !important;
+    }
+
+    div[data-testid="column"] div.stButton > button:hover {
+        background: linear-gradient(135deg, rgba(99, 102, 241, 0.3), rgba(168, 85, 247, 0.3)) !important;
+        border-color: #a855f7 !important;
+        color: #ffffff !important;
+        transform: translateY(-1px) !important;
+    }
+
     /* Download Button */
     div.stDownloadButton > button {
         background: linear-gradient(135deg, #059669 0%, #10b981 100%) !important;
@@ -250,111 +270,68 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ----------------- MODEL MAPPINGS -----------------
+# ----------------- LIVE MODEL DETECTORS -----------------
+def get_live_groq_models(api_key: str):
+    """Fetch live list of models authorized for this Groq API Key."""
+    if not api_key.strip():
+        return False, "Please enter your Groq API key first."
+    try:
+        r = requests.get(
+            "https://api.groq.com/openai/v1/models",
+            headers={"Authorization": f"Bearer {api_key.strip()}"},
+            timeout=6
+        )
+        if r.status_code == 200:
+            data = r.json().get("data", [])
+            ids = [m["id"] for m in data if "whisper" not in m["id"].lower()]
+            return True, ids
+        else:
+            err = r.json().get("error", {}).get("message", f"HTTP {r.status_code}")
+            return False, err
+    except Exception as e:
+        return False, str(e)
+
+
+def get_live_gemini_models(api_key: str):
+    """Fetch live list of models authorized for this Gemini API Key."""
+    if not api_key.strip():
+        return False, "Please enter your Gemini API key first."
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key.strip()}"
+        r = requests.get(url, timeout=6)
+        if r.status_code == 200:
+            data = r.json().get("models", [])
+            ids = [m["name"].replace("models/", "") for m in data if "generateContent" in m.get("supportedGenerationMethods", [])]
+            return True, ids
+        else:
+            err = r.json().get("error", {}).get("message", f"HTTP {r.status_code}")
+            return False, err
+    except Exception as e:
+        return False, str(e)
+
+
+# Default Fallback Catalog
 MODELS_CATALOG = {
     "Groq": [
-        {
-            "id": "groq/llama-3.1-8b-instant",
-            "name": "Llama 3.1 8B Instant",
-            "tag": "100% Active & Free Tier (Recommended) • 131k ctx",
-            "desc": "Ultra-fast execution, verified active on free Groq tier."
-        },
-        {
-            "id": "groq/llama-3.3-70b-versatile",
-            "name": "Llama 3.3 70B Versatile",
-            "tag": "Fast general intelligence • 131k ctx (May require paid tier)",
-            "desc": "Research summaries, structured writing & broad agent tasks."
-        },
-        {
-            "id": "groq/openai/gpt-oss-20b",
-            "name": "GPT-OSS 20B",
-            "tag": "Fast inference (~1,000 tok/s) • 131k ctx",
-            "desc": "High-volume research extraction, classification, concise synthesis."
-        },
-        {
-            "id": "groq/openai/gpt-oss-120b",
-            "name": "GPT-OSS 120B",
-            "tag": "Fast + Strong reasoning (~500 tok/s) • 131k ctx",
-            "desc": "Tool-using research, coding, mid-tier fact-checker."
-        },
+        {"id": "groq/llama-3.1-8b-instant", "name": "Llama 3.1 8B Instant", "tag": "100% Free Tier Active", "desc": "Fast execution, verified active on free Groq tier."},
+        {"id": "groq/llama-3.3-70b-versatile", "name": "Llama 3.3 70B Versatile", "tag": "General Intelligence", "desc": "Research summaries, structured writing."},
+        {"id": "groq/openai/gpt-oss-20b", "name": "GPT-OSS 20B", "tag": "Fast inference (~1,000 tok/s)", "desc": "High-volume research extraction."},
+        {"id": "groq/openai/gpt-oss-120b", "name": "GPT-OSS 120B", "tag": "Fast + Strong reasoning", "desc": "Tool-using research, fact-checker."},
     ],
     "Google Gemini": [
-        {
-            "id": "gemini/gemini-3.8-flash",
-            "name": "Gemini 3.8 Flash",
-            "tag": "Fast agentic engineering (Recommended)",
-            "desc": "Autonomous workflows, long-horizon coding, strong default researcher."
-        },
-        {
-            "id": "gemini/gemini-3.1-pro-preview",
-            "name": "Gemini 3.1 Pro Preview",
-            "tag": "Deep reasoning & synthesis",
-            "desc": "Difficult planning, complex technical analysis, final synthesis."
-        },
-        {
-            "id": "gemini/gemini-3.5-flash-lite",
-            "name": "Gemini 3.5 Flash-Lite",
-            "tag": "Lowest-cost fast inference",
-            "desc": "Repetitive research subtasks, extraction, large fan-out pipelines."
-        },
-        {
-            "id": "gemini/gemini-2.5-pro",
-            "name": "Gemini 2.5 Pro",
-            "tag": "Deep reasoning + coding",
-            "desc": "Complex multimodal reasoning & rigorous final-report work."
-        },
-        {
-            "id": "gemini/gemini-2.0-flash",
-            "name": "Gemini 2.0 Flash",
-            "tag": "Ultra-fast stable release",
-            "desc": "Fast production responses, robust general research."
-        },
+        {"id": "gemini/gemini-2.0-flash", "name": "Gemini 2.0 Flash", "tag": "Fast & Reliable (Recommended)", "desc": "Fast production responses, robust general research."},
+        {"id": "gemini/gemini-1.5-flash", "name": "Gemini 1.5 Flash", "tag": "High Rate Limits", "desc": "Generous free tier token allowance."},
+        {"id": "gemini/gemini-3.8-flash", "name": "Gemini 3.8 Flash", "tag": "Agentic Engineering", "desc": "Autonomous workflows, long-horizon coding."},
+        {"id": "gemini/gemini-2.5-pro", "name": "Gemini 2.5 Pro", "tag": "Deep reasoning", "desc": "Complex multimodal reasoning."},
     ],
     "OpenAI": [
-        {
-            "id": "openai/gpt-5",
-            "name": "GPT-5",
-            "tag": "Deep reasoning • 400k ctx",
-            "desc": "Planner, fact-checker, coding/research agent, final technical writer."
-        },
-        {
-            "id": "openai/gpt-5-mini",
-            "name": "GPT-5 mini",
-            "tag": "Fast reasoning • 400k ctx",
-            "desc": "Well-scoped research subtasks, structured outputs, cost-efficient worker."
-        },
-        {
-            "id": "openai/gpt-4.1",
-            "name": "GPT-4.1",
-            "tag": "1M Context Window",
-            "desc": "Large-document RAG, repository/document analysis, reliable tool calling."
-        },
-        {
-            "id": "openai/gpt-4o-mini",
-            "name": "GPT-4o mini",
-            "tag": "Efficient generalist • 128k ctx",
-            "desc": "Balanced cost and quality for structured research."
-        },
+        {"id": "openai/gpt-4o-mini", "name": "GPT-4o mini", "tag": "Everyday Efficient", "desc": "Balanced cost and quality."},
+        {"id": "openai/gpt-5-mini", "name": "GPT-5 mini", "tag": "Fast reasoning", "desc": "Structured outputs, cost-efficient worker."},
+        {"id": "openai/gpt-5", "name": "GPT-5", "tag": "Deep reasoning", "desc": "Planner, fact-checker, technical writer."},
     ],
     "DeepSeek": [
-        {
-            "id": "deepseek/deepseek-flash",
-            "name": "DeepSeek V4.1 Flash",
-            "tag": "Fast, economical long-context (1M ctx)",
-            "desc": "Bulk document analysis, web-research workers, extraction."
-        },
-        {
-            "id": "deepseek/deepseek-v4-pro",
-            "name": "DeepSeek V4 Pro",
-            "tag": "Deep reasoning (1M ctx)",
-            "desc": "Final synthesis, complex coding, high-quality evaluator/fact-checker."
-        },
-        {
-            "id": "deepseek/deepseek-chat",
-            "name": "DeepSeek Chat",
-            "tag": "General conversational agent",
-            "desc": "Standard balanced reasoning."
-        },
+        {"id": "deepseek/deepseek-chat", "name": "DeepSeek Chat", "tag": "Conversational Agent", "desc": "Standard balanced reasoning."},
+        {"id": "deepseek/deepseek-flash", "name": "DeepSeek V4.1 Flash", "tag": "Economical Long-Context", "desc": "Web-research workers, extraction."},
     ],
 }
 
@@ -379,37 +356,95 @@ with st.sidebar:
         index=0
     )
 
-    if provider in MODELS_CATALOG:
-        catalog = MODELS_CATALOG[provider]
-        options = [f"{m['name']} ({m['tag']})" for m in catalog] + ["Custom Model ID..."]
+    if provider == "Groq":
+        env_key = os.getenv("GROQ_API_KEY", "")
+        api_key = st.text_input("Groq API Key (gsk_...)", value=env_key, type="password")
+        st.caption("🔗 [Get Free Groq API Key](https://console.groq.com/keys)")
 
-        if provider == "Groq":
-            env_key = os.getenv("GROQ_API_KEY", "")
-            api_key = st.text_input("Groq API Key (gsk_...)", value=env_key, type="password")
-            st.caption("🔗 [Get Free Groq API Key](https://console.groq.com/keys)")
-        elif provider == "Google Gemini":
-            env_key = os.getenv("GEMINI_API_KEY", "")
-            api_key = st.text_input("Gemini API Key (AIzaSy...)", value=env_key, type="password")
-            st.caption("🔗 [Get Free Gemini API Key](https://aistudio.google.com/app/apikey)")
-        elif provider == "OpenAI":
-            env_key = os.getenv("OPENAI_API_KEY", "")
-            api_key = st.text_input("OpenAI API Key (sk-...)", value=env_key, type="password")
-        elif provider == "DeepSeek":
-            env_key = os.getenv("DEEPSEEK_API_KEY", "")
-            api_key = st.text_input("DeepSeek API Key (sk-...)", value=env_key, type="password")
+        # Verify Key Button
+        if st.button("🔍 Check Key & Load My Account Models", use_container_width=True):
+            with st.spinner("Connecting to Groq API..."):
+                ok, res = get_live_groq_models(api_key)
+                if ok:
+                    st.session_state["groq_live_models"] = res
+                    st.success(f"✅ Key Verified! Found {len(res)} models authorized for your account.")
+                else:
+                    st.error(f"❌ Key Verification Failed: {res}")
 
-        selected_opt = st.selectbox("Select Model", options, index=0)
-
-        if "Custom Model" in selected_opt:
-            model_name = st.text_input("Enter exact Model ID string", value=catalog[0]["id"])
-            model_desc = "Custom user-specified model identifier."
+        # Populate model dropdown
+        if "groq_live_models" in st.session_state and st.session_state["groq_live_models"]:
+            live_models = st.session_state["groq_live_models"]
+            selected_live = st.selectbox("Active Models on Your Account", live_models, index=0)
+            model_name = f"groq/{selected_live}"
+            model_desc = f"Verified active on your Groq key."
         else:
-            selected_idx = options.index(selected_opt)
-            selected_item = catalog[selected_idx]
-            model_name = selected_item["id"]
-            model_desc = selected_item["desc"]
+            catalog = MODELS_CATALOG["Groq"]
+            options = [f"{m['name']} ({m['tag']})" for m in catalog] + ["Custom Model ID..."]
+            selected_opt = st.selectbox("Select Model", options, index=0)
+            if "Custom Model" in selected_opt:
+                model_name = st.text_input("Enter exact Groq Model ID", value="groq/llama-3.1-8b-instant")
+                model_desc = "Custom user-specified model identifier."
+            else:
+                idx = options.index(selected_opt)
+                model_name = catalog[idx]["id"]
+                model_desc = catalog[idx]["desc"]
 
-        st.markdown(f"<div class='model-info-box'>💡 <b>Best Use:</b> {model_desc}<br><code>{model_name}</code></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='model-info-box'>💡 <b>Selected Model:</b> <code>{model_name}</code><br>{model_desc}</div>", unsafe_allow_html=True)
+
+    elif provider == "Google Gemini":
+        env_key = os.getenv("GEMINI_API_KEY", "")
+        api_key = st.text_input("Gemini API Key (AIzaSy...)", value=env_key, type="password")
+        st.caption("🔗 [Get Free Gemini API Key](https://aistudio.google.com/app/apikey)")
+
+        if st.button("🔍 Check Key & Load Gemini Models", use_container_width=True):
+            with st.spinner("Connecting to Gemini API..."):
+                ok, res = get_live_gemini_models(api_key)
+                if ok:
+                    st.session_state["gemini_live_models"] = res
+                    st.success(f"✅ Connected! Found {len(res)} Gemini models.")
+                else:
+                    st.error(f"❌ Verification Failed: {res}")
+
+        if "gemini_live_models" in st.session_state and st.session_state["gemini_live_models"]:
+            live_models = st.session_state["gemini_live_models"]
+            selected_live = st.selectbox("Active Models on Your Key", live_models, index=0)
+            model_name = f"gemini/{selected_live}"
+            model_desc = "Verified active on your Gemini key."
+        else:
+            catalog = MODELS_CATALOG["Google Gemini"]
+            options = [f"{m['name']} ({m['tag']})" for m in catalog] + ["Custom Model ID..."]
+            selected_opt = st.selectbox("Select Model", options, index=0)
+            if "Custom Model" in selected_opt:
+                model_name = st.text_input("Enter exact Gemini Model ID", value="gemini/gemini-2.0-flash")
+                model_desc = "Custom user-specified model identifier."
+            else:
+                idx = options.index(selected_opt)
+                model_name = catalog[idx]["id"]
+                model_desc = catalog[idx]["desc"]
+
+        st.markdown(f"<div class='model-info-box'>💡 <b>Selected Model:</b> <code>{model_name}</code><br>{model_desc}</div>", unsafe_allow_html=True)
+
+    elif provider == "OpenAI":
+        env_key = os.getenv("OPENAI_API_KEY", "")
+        api_key = st.text_input("OpenAI API Key (sk-...)", value=env_key, type="password")
+        catalog = MODELS_CATALOG["OpenAI"]
+        options = [f"{m['name']} ({m['tag']})" for m in catalog] + ["Custom Model ID..."]
+        selected_opt = st.selectbox("Select Model", options, index=0)
+        idx = options.index(selected_opt)
+        model_name = st.text_input("Enter Model ID", value="openai/gpt-4o-mini") if "Custom" in selected_opt else catalog[idx]["id"]
+        model_desc = catalog[idx]["desc"] if "Custom" not in selected_opt else "Custom model."
+        st.markdown(f"<div class='model-info-box'>💡 <code>{model_name}</code><br>{model_desc}</div>", unsafe_allow_html=True)
+
+    elif provider == "DeepSeek":
+        env_key = os.getenv("DEEPSEEK_API_KEY", "")
+        api_key = st.text_input("DeepSeek API Key (sk-...)", value=env_key, type="password")
+        catalog = MODELS_CATALOG["DeepSeek"]
+        options = [f"{m['name']} ({m['tag']})" for m in catalog] + ["Custom Model ID..."]
+        selected_opt = st.selectbox("Select Model", options, index=0)
+        idx = options.index(selected_opt)
+        model_name = st.text_input("Enter Model ID", value="deepseek/deepseek-chat") if "Custom" in selected_opt else catalog[idx]["id"]
+        model_desc = catalog[idx]["desc"] if "Custom" not in selected_opt else "Custom model."
+        st.markdown(f"<div class='model-info-box'>💡 <code>{model_name}</code><br>{model_desc}</div>", unsafe_allow_html=True)
 
     else:  # Ollama Local
         api_key = "ollama"
@@ -461,38 +496,60 @@ st.markdown("""
 
 tab1, tab2 = st.tabs(["🚀 Launch Research", "📂 Past Reports Archive"])
 
+# State callback for the 4 suggestion chips
+def set_topic_callback(topic_text: str):
+    st.session_state["main_topic_input"] = topic_text
+
 with tab1:
     st.markdown("#### 🎯 Enter Your Research Subject")
 
+    # Initialize session state for topic if not present
+    if "main_topic_input" not in st.session_state:
+        st.session_state["main_topic_input"] = "Modern Agritech & Genetic Innovations in Potato Cultivation"
+
+    # Main text input bound to session state
     topic_input = st.text_input(
         label="Research Topic",
+        key="main_topic_input",
         placeholder="e.g. Modern Agritech & Genetic Innovations in Potato, Autonomous Multi-Agent AI Frameworks in 2026...",
         label_visibility="collapsed",
-        key="main_topic_input"
     )
 
-    # Quick Suggestion Chips
-    st.markdown("<span style='font-size: 0.85rem; color: #94a3b8;'>💡 Quick Suggestions:</span>", unsafe_allow_html=True)
+    # Quick Suggestion Chips with working callbacks
+    st.markdown("<span style='font-size: 0.85rem; color: #94a3b8;'>💡 Quick Suggestions (Click any button to fill):</span>", unsafe_allow_html=True)
     chip_col1, chip_col2, chip_col3, chip_col4 = st.columns(4)
     with chip_col1:
-        if st.button("🥔 Potato Agritech & Genetics", use_container_width=True):
-            st.session_state["topic_val"] = "Modern Agritech & Genetic Innovations in Potato Cultivation"
-            st.rerun()
+        st.button(
+            "🥔 Potato Agritech & Genetics",
+            key="chip_potato_btn",
+            on_click=set_topic_callback,
+            args=("Modern Agritech & Genetic Innovations in Potato Cultivation",),
+            use_container_width=True
+        )
     with chip_col2:
-        if st.button("🤖 Autonomous AI Agents 2026", use_container_width=True):
-            st.session_state["topic_val"] = "Autonomous Multi-Agent AI Frameworks and Future Trends in 2026"
-            st.rerun()
+        st.button(
+            "🤖 Autonomous AI Agents 2026",
+            key="chip_agents_btn",
+            on_click=set_topic_callback,
+            args=("Autonomous Multi-Agent AI Frameworks and Future Trends in 2026",),
+            use_container_width=True
+        )
     with chip_col3:
-        if st.button("⚛️ Quantum Computing", use_container_width=True):
-            st.session_state["topic_val"] = "Quantum Computing Breakthroughs and Commercial Readiness"
-            st.rerun()
+        st.button(
+            "⚛️ Quantum Computing",
+            key="chip_quantum_btn",
+            on_click=set_topic_callback,
+            args=("Quantum Computing Breakthroughs and Commercial Readiness",),
+            use_container_width=True
+        )
     with chip_col4:
-        if st.button("🧬 CRISPR Therapeutics", use_container_width=True):
-            st.session_state["topic_val"] = "CRISPR-Cas9 Clinical Trials and Gene Editing Therapeutics"
-            st.rerun()
-
-    if "topic_val" in st.session_state:
-        topic_input = st.session_state.pop("topic_val")
+        st.button(
+            "🧬 CRISPR Therapeutics",
+            key="chip_crispr_btn",
+            on_click=set_topic_callback,
+            args=("CRISPR-Cas9 Clinical Trials and Gene Editing Therapeutics",),
+            use_container_width=True
+        )
 
     st.write("")
     run_btn = st.button("🚀 Start Autonomous Research", type="primary", use_container_width=True)
