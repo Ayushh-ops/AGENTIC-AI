@@ -18,6 +18,19 @@ if hasattr(sys.stderr, "reconfigure"):
     except Exception:
         pass
 
+# Configure LiteLLM and CrewAI to drop unsupported params (like cache_breakpoint) for Groq
+try:
+    import litellm
+    litellm.drop_params = True
+except Exception:
+    pass
+
+try:
+    import crewai.llms.cache
+    crewai.llms.cache.mark_cache_breakpoint = lambda msg: msg
+except Exception:
+    pass
+
 from crewai import Crew, Process, LLM
 from .config import get_configured_llm, ROOT_DIR
 from .agents import (

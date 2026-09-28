@@ -1,6 +1,25 @@
 import os
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
+
+# Enforce UTF-8 encoding on Windows
+os.environ["PYTHONIOENCODING"] = "utf-8"
+
+# 1. Configure LiteLLM to drop unsupported provider parameters
+try:
+    import litellm
+    litellm.drop_params = True
+except Exception:
+    pass
+
+# 2. Patch CrewAI cache_breakpoint to avoid Groq schema validation rejection
+try:
+    import crewai.llms.cache
+    crewai.llms.cache.mark_cache_breakpoint = lambda msg: msg
+except Exception:
+    pass
+
 from crewai import LLM
 
 # Load .env from project root
