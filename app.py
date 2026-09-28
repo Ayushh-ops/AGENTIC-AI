@@ -254,16 +254,16 @@ st.markdown("""
 MODELS_CATALOG = {
     "Groq": [
         {
-            "id": "groq/llama-3.3-70b-versatile",
-            "name": "Llama 3.3 70B Versatile",
-            "tag": "Fast general intelligence • 131k ctx",
-            "desc": "Research summaries, structured writing & broad agent tasks."
-        },
-        {
             "id": "groq/llama-3.1-8b-instant",
             "name": "Llama 3.1 8B Instant",
-            "tag": "Maximum speed • 131k ctx",
-            "desc": "Ultra-fast execution, routing, cheap parallel workers."
+            "tag": "100% Active & Free Tier (Recommended) • 131k ctx",
+            "desc": "Ultra-fast execution, verified active on free Groq tier."
+        },
+        {
+            "id": "groq/llama-3.3-70b-versatile",
+            "name": "Llama 3.3 70B Versatile",
+            "tag": "Fast general intelligence • 131k ctx (May require paid tier)",
+            "desc": "Research summaries, structured writing & broad agent tasks."
         },
         {
             "id": "groq/openai/gpt-oss-20b",
