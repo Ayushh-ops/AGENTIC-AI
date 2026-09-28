@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 from datetime import datetime
 
-# Prevent Windows charmap encoding crashes on emoji prints
+# Enforce UTF-8 encoding on Windows to prevent charmap emoji crashes
 os.environ["PYTHONIOENCODING"] = "utf-8"
 if hasattr(sys.stdout, "reconfigure"):
     try:
@@ -34,7 +34,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Ultra-Modern Premium CSS (Glassmorphism, Neon Gradients, Polished Buttons & Cards)
+# Ultra-Modern CSS Styling
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
@@ -74,7 +74,7 @@ st.markdown("""
     .hero-subtitle {
         font-size: 1.05rem;
         color: #94a3b8;
-        max-width: 800px;
+        max-width: 850px;
         line-height: 1.6;
         margin-bottom: 24px;
     }
@@ -176,11 +176,6 @@ st.markdown("""
         transition: all 0.2s ease !important;
     }
 
-    div.stDownloadButton > button:hover {
-        transform: translateY(-1px) !important;
-        box-shadow: 0 10px 22px -4px rgba(16, 185, 129, 0.6) !important;
-    }
-
     /* Stat Badges */
     .stats-container {
         display: flex;
@@ -216,7 +211,6 @@ st.markdown("""
         box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.5);
     }
 
-    /* Sidebar Clean styling */
     .sidebar-status {
         display: flex;
         align-items: center;
@@ -230,17 +224,135 @@ st.markdown("""
         font-weight: 600;
         margin-bottom: 16px;
     }
+
+    .model-info-box {
+        background: rgba(99, 102, 241, 0.1);
+        border: 1px solid rgba(99, 102, 241, 0.25);
+        border-radius: 8px;
+        padding: 8px 12px;
+        margin-top: 8px;
+        font-size: 0.8rem;
+        color: #c7d2fe;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# ----------------- SIDEBAR CONFIGURATION -----------------
+# ----------------- MODEL MAPPINGS -----------------
+MODELS_CATALOG = {
+    "Groq": [
+        {
+            "id": "groq/llama-3.3-70b-versatile",
+            "name": "Llama 3.3 70B Versatile",
+            "tag": "Fast general intelligence • 131k ctx",
+            "desc": "Research summaries, structured writing & broad agent tasks."
+        },
+        {
+            "id": "groq/llama-3.1-8b-instant",
+            "name": "Llama 3.1 8B Instant",
+            "tag": "Maximum speed • 131k ctx",
+            "desc": "Ultra-fast execution, routing, cheap parallel workers."
+        },
+        {
+            "id": "groq/openai/gpt-oss-20b",
+            "name": "GPT-OSS 20B",
+            "tag": "Fast inference (~1,000 tok/s) • 131k ctx",
+            "desc": "High-volume research extraction, classification, concise synthesis."
+        },
+        {
+            "id": "groq/openai/gpt-oss-120b",
+            "name": "GPT-OSS 120B",
+            "tag": "Fast + Strong reasoning (~500 tok/s) • 131k ctx",
+            "desc": "Tool-using research, coding, mid-tier fact-checker."
+        },
+    ],
+    "Google Gemini": [
+        {
+            "id": "gemini/gemini-3.8-flash",
+            "name": "Gemini 3.8 Flash",
+            "tag": "Fast agentic engineering (Recommended)",
+            "desc": "Autonomous workflows, long-horizon coding, strong default researcher."
+        },
+        {
+            "id": "gemini/gemini-3.1-pro-preview",
+            "name": "Gemini 3.1 Pro Preview",
+            "tag": "Deep reasoning & synthesis",
+            "desc": "Difficult planning, complex technical analysis, final synthesis."
+        },
+        {
+            "id": "gemini/gemini-3.5-flash-lite",
+            "name": "Gemini 3.5 Flash-Lite",
+            "tag": "Lowest-cost fast inference",
+            "desc": "Repetitive research subtasks, extraction, large fan-out pipelines."
+        },
+        {
+            "id": "gemini/gemini-2.5-pro",
+            "name": "Gemini 2.5 Pro",
+            "tag": "Deep reasoning + coding",
+            "desc": "Complex multimodal reasoning & rigorous final-report work."
+        },
+        {
+            "id": "gemini/gemini-2.0-flash",
+            "name": "Gemini 2.0 Flash",
+            "tag": "Ultra-fast stable release",
+            "desc": "Fast production responses, robust general research."
+        },
+    ],
+    "OpenAI": [
+        {
+            "id": "openai/gpt-5",
+            "name": "GPT-5",
+            "tag": "Deep reasoning • 400k ctx",
+            "desc": "Planner, fact-checker, coding/research agent, final technical writer."
+        },
+        {
+            "id": "openai/gpt-5-mini",
+            "name": "GPT-5 mini",
+            "tag": "Fast reasoning • 400k ctx",
+            "desc": "Well-scoped research subtasks, structured outputs, cost-efficient worker."
+        },
+        {
+            "id": "openai/gpt-4.1",
+            "name": "GPT-4.1",
+            "tag": "1M Context Window",
+            "desc": "Large-document RAG, repository/document analysis, reliable tool calling."
+        },
+        {
+            "id": "openai/gpt-4o-mini",
+            "name": "GPT-4o mini",
+            "tag": "Efficient generalist • 128k ctx",
+            "desc": "Balanced cost and quality for structured research."
+        },
+    ],
+    "DeepSeek": [
+        {
+            "id": "deepseek/deepseek-flash",
+            "name": "DeepSeek V4.1 Flash",
+            "tag": "Fast, economical long-context (1M ctx)",
+            "desc": "Bulk document analysis, web-research workers, extraction."
+        },
+        {
+            "id": "deepseek/deepseek-v4-pro",
+            "name": "DeepSeek V4 Pro",
+            "tag": "Deep reasoning (1M ctx)",
+            "desc": "Final synthesis, complex coding, high-quality evaluator/fact-checker."
+        },
+        {
+            "id": "deepseek/deepseek-chat",
+            "name": "DeepSeek Chat",
+            "tag": "General conversational agent",
+            "desc": "Standard balanced reasoning."
+        },
+    ],
+}
+
+# ----------------- SIDEBAR -----------------
 with st.sidebar:
     st.markdown("""
         <div style='display: flex; align-items: center; gap: 10px; margin-bottom: 10px;'>
             <span style='font-size: 2rem;'>🤖</span>
             <div>
                 <h3 style='margin: 0; font-size: 1.25rem; font-weight: 700;'>Nexus AI</h3>
-                <span style='font-size: 0.75rem; color: #94a3b8; text-transform: uppercase;'>Agentic Engine v2.0</span>
+                <span style='font-size: 0.75rem; color: #94a3b8; text-transform: uppercase;'>Multi-Agent Engine</span>
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -249,67 +361,47 @@ with st.sidebar:
     st.markdown("### ⚙️ Engine Settings")
 
     provider = st.selectbox(
-        "Select LLM Provider",
-        ["Groq (Ultra-Fast ⚡)", "Google Gemini (Recommended 🌟)", "OpenAI", "DeepSeek", "Ollama (Local)"],
+        "Select Provider",
+        ["Groq", "Google Gemini", "OpenAI", "DeepSeek", "Ollama (Local)"],
         index=0
     )
 
-    if "Groq" in provider:
-        env_key = os.getenv("GROQ_API_KEY", "")
-        api_key = st.text_input("Groq API Key (gsk_...)", value=env_key, type="password", help="Get a free key from console.groq.com")
-        st.caption("🔗 [Get Free Groq API Key](https://console.groq.com/keys)")
-        model_selection = st.selectbox(
-            "Model",
-            [
-                "groq/llama-3.3-70b-versatile (Smartest & Fast)",
-                "groq/llama-3.1-8b-instant (Fastest & Free Limits)",
-                "groq/gemma2-9b-it",
-                "groq/mixtral-8x7b-32768",
-                "Custom Model..."
-            ],
-            index=0
-        )
-        model_name = st.text_input("Enter Groq Model ID", value="groq/llama-3.3-70b-versatile") if "Custom" in model_selection else model_selection.split(" ")[0]
+    if provider in MODELS_CATALOG:
+        catalog = MODELS_CATALOG[provider]
+        options = [f"{m['name']} ({m['tag']})" for m in catalog] + ["Custom Model ID..."]
 
-    elif "Gemini" in provider:
-        env_key = os.getenv("GEMINI_API_KEY", "")
-        api_key = st.text_input("Gemini API Key (AIzaSy...)", value=env_key, type="password", help="Get key from aistudio.google.com")
-        st.caption("🔗 [Get Free Gemini API Key](https://aistudio.google.com/app/apikey)")
-        model_selection = st.selectbox(
-            "Model",
-            [
-                "gemini/gemini-2.0-flash (Recommended)",
-                "gemini/gemini-1.5-flash",
-                "gemini/gemini-1.5-pro",
-                "Custom Model..."
-            ],
-            index=0
-        )
-        model_name = st.text_input("Enter Gemini Model ID", value="gemini/gemini-2.0-flash") if "Custom" in model_selection else model_selection.split(" ")[0]
+        if provider == "Groq":
+            env_key = os.getenv("GROQ_API_KEY", "")
+            api_key = st.text_input("Groq API Key (gsk_...)", value=env_key, type="password")
+            st.caption("🔗 [Get Free Groq API Key](https://console.groq.com/keys)")
+        elif provider == "Google Gemini":
+            env_key = os.getenv("GEMINI_API_KEY", "")
+            api_key = st.text_input("Gemini API Key (AIzaSy...)", value=env_key, type="password")
+            st.caption("🔗 [Get Free Gemini API Key](https://aistudio.google.com/app/apikey)")
+        elif provider == "OpenAI":
+            env_key = os.getenv("OPENAI_API_KEY", "")
+            api_key = st.text_input("OpenAI API Key (sk-...)", value=env_key, type="password")
+        elif provider == "DeepSeek":
+            env_key = os.getenv("DEEPSEEK_API_KEY", "")
+            api_key = st.text_input("DeepSeek API Key (sk-...)", value=env_key, type="password")
 
-    elif "OpenAI" in provider:
-        env_key = os.getenv("OPENAI_API_KEY", "")
-        api_key = st.text_input("OpenAI API Key (sk-...)", value=env_key, type="password")
-        model_selection = st.selectbox(
-            "Model",
-            ["gpt-4o-mini (Recommended)", "gpt-4o", "Custom Model..."],
-            index=0
-        )
-        model_name = st.text_input("Enter OpenAI Model ID", value="gpt-4o-mini") if "Custom" in model_selection else model_selection.split(" ")[0]
+        selected_opt = st.selectbox("Select Model", options, index=0)
 
-    elif "DeepSeek" in provider:
-        env_key = os.getenv("DEEPSEEK_API_KEY", "")
-        api_key = st.text_input("DeepSeek API Key (sk-...)", value=env_key, type="password")
-        model_selection = st.selectbox(
-            "Model",
-            ["deepseek/deepseek-chat", "deepseek/deepseek-reasoner", "Custom Model..."],
-            index=0
-        )
-        model_name = st.text_input("Enter DeepSeek Model ID", value="deepseek/deepseek-chat") if "Custom" in model_selection else model_selection.split(" ")[0]
+        if "Custom Model" in selected_opt:
+            model_name = st.text_input("Enter exact Model ID string", value=catalog[0]["id"])
+            model_desc = "Custom user-specified model identifier."
+        else:
+            selected_idx = options.index(selected_opt)
+            selected_item = catalog[selected_idx]
+            model_name = selected_item["id"]
+            model_desc = selected_item["desc"]
+
+        st.markdown(f"<div class='model-info-box'>💡 <b>Best Use:</b> {model_desc}<br><code>{model_name}</code></div>", unsafe_allow_html=True)
 
     else:  # Ollama Local
         api_key = "ollama"
         model_name = st.text_input("Ollama Model Name", value="ollama/llama3.2")
+        st.markdown("<div class='model-info-box'>💡 Running on local Ollama server (http://localhost:11434).</div>", unsafe_allow_html=True)
 
     st.markdown("---")
     st.markdown("### 🛠️ Active Toolchain")
@@ -358,11 +450,10 @@ tab1, tab2 = st.tabs(["🚀 Launch Research", "📂 Past Reports Archive"])
 
 with tab1:
     st.markdown("#### 🎯 Enter Your Research Subject")
-    
-    # Topic Input
+
     topic_input = st.text_input(
         label="Research Topic",
-        placeholder="e.g. Next-Generation Multimodal AI Agents in 2026, Agricultural Biotechnology of Potato, Quantum Computing...",
+        placeholder="e.g. Modern Agritech & Genetic Innovations in Potato, Autonomous Multi-Agent AI Frameworks in 2026...",
         label_visibility="collapsed",
         key="main_topic_input"
     )
@@ -387,7 +478,6 @@ with tab1:
             st.session_state["topic_val"] = "CRISPR-Cas9 Clinical Trials and Gene Editing Therapeutics"
             st.rerun()
 
-    # If chip clicked, update
     if "topic_val" in st.session_state:
         topic_input = st.session_state.pop("topic_val")
 
@@ -399,7 +489,7 @@ with tab1:
         if not active_topic:
             st.warning("⚠️ Please provide a research topic to proceed.")
         elif provider != "Ollama (Local)" and not api_key.strip():
-            st.error(f"⚠️ Please enter your {provider.split(' ')[0]} API key in the sidebar.")
+            st.error(f"⚠️ Please enter your {provider} API key in the sidebar.")
         else:
             status_box = st.status(
                 f"🤖 Initializing Crew with `{model_name}`...",
@@ -416,7 +506,7 @@ with tab1:
                     status_box.update(label="✅ Research Mission Complete!", state="complete", expanded=False)
 
                     st.balloons()
-                    
+
                     report_text = result["report"]
                     word_count = len(report_text.split())
                     char_count = len(report_text)

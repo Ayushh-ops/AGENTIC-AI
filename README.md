@@ -35,70 +35,35 @@ flowchart TD
 
 ---
 
+## 🧠 Supported Models Catalog (2026 Ready)
+
+| Provider | Model | Exact CrewAI / LiteLLM `model` string | Context Window | Best Use Case |
+| :--- | :--- | :--- | :--- | :--- |
+| **Groq** | GPT-OSS 20B | `groq/openai/gpt-oss-20b` | 131,072 | **Fast inference** (~1,000 tok/s): high-volume researcher agents, extraction, concise synthesis |
+| **Groq** | GPT-OSS 120B | `groq/openai/gpt-oss-120b` | 131,072 | **Fast + stronger reasoning** (~500 tok/s): tool-using research, coding, mid-tier fact-checker |
+| **Groq** | Llama 3.1 8B Instant | `groq/llama-3.1-8b-instant` | 131,072 | **Maximum speed**: routing, query rewriting, metadata extraction, cheap parallel workers |
+| **Groq** | Llama 3.3 70B Versatile | `groq/llama-3.3-70b-versatile` | 131,072 | **Fast general intelligence**: research summaries, structured writing, broad agent tasks |
+| **Google Gemini** | Gemini 3.8 Flash | `gemini/gemini-3.8-flash` | Account specific | **Fast, agentic engineering**: long-horizon coding, autonomous workflows, strong default researcher |
+| **Google Gemini** | Gemini 3.1 Pro Preview | `gemini/gemini-3.1-pro-preview` | Account specific | **Deep reasoning**: difficult planning, complex technical analysis, final synthesis |
+| **Google Gemini** | Gemini 3.5 Flash-Lite | `gemini/gemini-3.5-flash-lite` | Account specific | **Lowest-cost fast inference**: repetitive research subtasks, extraction, large fan-out pipelines |
+| **Google Gemini** | Gemini 2.5 Pro | `gemini/gemini-2.5-pro` | Account specific | **Deep reasoning + coding**: complex multimodal reasoning and rigorous final-report work |
+| **OpenAI** | GPT-5 | `openai/gpt-5` | 400,000 | **Deep reasoning**: planner, fact-checker, coding/research agent, final technical writer |
+| **OpenAI** | GPT-5 mini | `openai/gpt-5-mini` | 400,000 | **Fast reasoning**: well-scoped research subtasks, extraction, structured outputs |
+| **OpenAI** | GPT-4.1 | `openai/gpt-4.1` | 1,047,576 | **Long-context non-reasoning**: large-document RAG, repository/document analysis |
+| **DeepSeek** | DeepSeek V4.1 Flash | `deepseek/deepseek-flash` | 1,000,000 | **Fast, economical long-context agent**: bulk document analysis, web-research workers |
+| **DeepSeek** | DeepSeek V4 Pro | `deepseek/deepseek-v4-pro` | 1,000,000 | **Deep reasoning**: final synthesis, complex coding and analysis, high-quality evaluator |
+
+---
+
 ## 🛠️ Tech Stack
 
 | Component | Technology | Description |
 |---|---|---|
 | **Multi-Agent Framework** | `CrewAI 1.15+` | Orchestrates agents, memory, task pipelines, and delegation |
-| **LLM Inference** | `Google Gemini / OpenAI / Groq / Ollama` | Multi-provider support via CrewAI LLM |
+| **LLM Inference** | `LiteLLM`, `Groq`, `Google Gemini`, `OpenAI`, `DeepSeek` | Universal multi-provider support |
 | **Search & Retrieval** | `ddgs` (DuckDuckGo), `wikipedia`, `requests`, `bs4` | Zero-API-key live web search and content scraping |
-| **Web Dashboard** | `Streamlit` | Interactive UI to configure models, track live research, and download reports |
+| **Web Dashboard** | `Streamlit` | Interactive UI with Glassmorphism design and live execution tracking |
 | **Environment Management** | `python-dotenv` | Secure API key and config management |
-
----
-
-## 📁 Project Structure
-
-```
-multi_agent_research_assistant/
-│
-├── .venv/                      # Python Virtual Environment
-├── .env.example                # Configuration template
-├── .env                        # Active API keys
-├── requirements.txt            # Pinned dependencies
-├── README.md                   # Complete documentation
-│
-├── run.py                      # Interactive Command-Line Interface (CLI)
-├── app.py                      # Streamlit Interactive Web Application
-│
-├── src/
-│   ├── config.py               # Central LLM and provider configurations
-│   ├── crew.py                 # Crew assembly and orchestration logic
-│   ├── agents/
-│   │   └── research_agents.py  # 3 specialized CrewAI Agents
-│   ├── tasks/
-│   │   └── research_tasks.py   # 3 coordinated sequential Tasks
-│   └── tools/
-│       └── search_tools.py     # Search, Wikipedia, and Scrape tools
-│
-└── outputs/                    # Auto-saved Markdown research reports
-```
-
----
-
-## 🚀 Getting Started
-
-### 1. Activate Virtual Environment
-Open PowerShell inside the project directory:
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
-
-### 2. Configure API Keys
-Edit `.env` and add your preferred LLM key:
-```ini
-MODEL_NAME=gemini/gemini-2.0-flash
-GEMINI_API_KEY=your_gemini_api_key_here
-
-# Or for OpenAI:
-# MODEL_NAME=gpt-4o-mini
-# OPENAI_API_KEY=your_openai_key_here
-
-# Or for Groq:
-# MODEL_NAME=groq/llama-3.3-70b-versatile
-# GROQ_API_KEY=your_groq_key_here
-```
-*(DuckDuckGo and Wikipedia search work out of the box with **no API keys required**!)*
 
 ---
 
@@ -106,14 +71,13 @@ GEMINI_API_KEY=your_gemini_api_key_here
 
 ### Option A: Interactive Web UI (Streamlit)
 ```powershell
-streamlit run app.py
+cd G:\multi_agent_research_assistant
+.\.venv\Scripts\streamlit.exe run app.py
 ```
 - Open browser at `http://localhost:8501`
-- Select model, enter topic, and watch the agents collaborate in real-time.
-- View and download past reports from the archive tab.
 
 ### Option B: Command-Line Interface (CLI)
 ```powershell
-python run.py
+cd G:\multi_agent_research_assistant
+.\.venv\Scripts\python.exe run.py
 ```
-- Interactive terminal prompt that guides you through topics and outputs directly to the console and `outputs/` folder.

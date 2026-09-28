@@ -12,22 +12,11 @@ def get_configured_llm(model_override: str = None, api_key_override: str = None)
     Returns a configured CrewAI LLM instance based on available environment variables
     or user-provided overrides.
     """
-    model_name = model_override or os.getenv("MODEL_NAME", "gemini/gemini-2.0-flash")
+    model_name = model_override or os.getenv("MODEL_NAME", "groq/llama-3.3-70b-versatile")
+    lower_model = model_name.lower().strip()
 
-    # Normalize model prefix
-    lower_model = model_name.lower()
-
-    if "gemini" in lower_model:
-        api_key = api_key_override or os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            raise ValueError("GEMINI_API_KEY is not set. Please enter your Gemini API key.")
-        os.environ["GEMINI_API_KEY"] = api_key
-        # Ensure prefix format
-        if not model_name.startswith("gemini/"):
-            model_name = f"gemini/{model_name}"
-        return LLM(model=model_name, api_key=api_key, temperature=0.7)
-
-    elif "groq" in lower_model:
+    # 1. Groq Models
+    if "groq" in lower_model:
         api_key = api_key_override or os.getenv("GROQ_API_KEY")
         if not api_key:
             raise ValueError("GROQ_API_KEY is not set. Please enter your Groq API key.")
@@ -36,6 +25,17 @@ def get_configured_llm(model_override: str = None, api_key_override: str = None)
             model_name = f"groq/{model_name}"
         return LLM(model=model_name, api_key=api_key, temperature=0.7)
 
+    # 2. Google Gemini Models
+    elif "gemini" in lower_model:
+        api_key = api_key_override or os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY is not set. Please enter your Gemini API key.")
+        os.environ["GEMINI_API_KEY"] = api_key
+        if not model_name.startswith("gemini/"):
+            model_name = f"gemini/{model_name}"
+        return LLM(model=model_name, api_key=api_key, temperature=0.7)
+
+    # 3. DeepSeek Models
     elif "deepseek" in lower_model:
         api_key = api_key_override or os.getenv("DEEPSEEK_API_KEY")
         if not api_key:
@@ -45,12 +45,13 @@ def get_configured_llm(model_override: str = None, api_key_override: str = None)
             model_name = f"deepseek/{model_name}"
         return LLM(model=model_name, api_key=api_key, temperature=0.7)
 
+    # 4. Ollama Local Models
     elif "ollama" in lower_model:
         base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
         return LLM(model=model_name, base_url=base_url)
 
+    # 5. OpenAI & Default Providers
     else:
-        # Default OpenAI / LiteLLM provider
         api_key = api_key_override or os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise ValueError("OPENAI_API_KEY is not set. Please enter your OpenAI API key.")
