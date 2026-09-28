@@ -1,9 +1,24 @@
+import os
+import sys
 import re
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional
-from crewai import Crew, Process, LLM
 
+# Enforce UTF-8 encoding on Windows to prevent charmap emoji crashes
+os.environ["PYTHONIOENCODING"] = "utf-8"
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+from crewai import Crew, Process, LLM
 from .config import get_configured_llm, ROOT_DIR
 from .agents import (
     create_researcher_agent,
@@ -39,7 +54,6 @@ class ResearchCrew:
         Executes the multi-agent research workflow on the given topic.
         Returns the final report text and metadata.
         """
-        # Ensure outputs directory exists
         outputs_dir = ROOT_DIR / "outputs"
         outputs_dir.mkdir(parents=True, exist_ok=True)
 
@@ -65,8 +79,11 @@ class ResearchCrew:
             verbose=True,
         )
 
-        print(f"\n🚀 Initiating Multi-Agent Research on: '{topic}'...")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        try:
+            print(f"\n[CrewAI] Initiating Multi-Agent Research on: '{topic}'...")
+            print("=" * 60)
+        except Exception:
+            pass
 
         # 4. Kickoff
         crew_output = crew.kickoff(inputs={"topic": topic})
@@ -74,10 +91,12 @@ class ResearchCrew:
         # Read output from file or crew_output raw
         report_content = str(crew_output.raw if hasattr(crew_output, "raw") else crew_output)
 
-        # If crew didn't write to file automatically, save explicitly
-        if not output_file.exists() or output_file.stat().st_size == 0:
-            with open(output_file, "w", encoding="utf-8") as f:
+        # Ensure output is safely saved to disk
+        try:
+            with open(output_file, "w", encoding="utf-8", errors="replace") as f:
                 f.write(report_content)
+        except Exception as e:
+            print(f"Warning: could not write to file: {e}")
 
         return {
             "topic": topic,
