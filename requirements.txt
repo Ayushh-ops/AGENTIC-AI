@@ -1,5 +1,6 @@
 crewai>=1.15.0
 crewai-tools>=1.15.0
+litellm>=1.100.0
 ddgs>=9.16.0
 duckduckgo-search>=8.0.0
 wikipedia>=1.4.0

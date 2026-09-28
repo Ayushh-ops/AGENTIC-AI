@@ -29,16 +29,12 @@ st.markdown("""
         margin-bottom: 0.2rem;
     }
     .sub-header {
-        font-size: 1.1rem;
+        font-size: 1.05rem;
         color: #616161;
         margin-bottom: 1.5rem;
     }
-    .agent-card {
-        padding: 12px;
+    .stAlert {
         border-radius: 8px;
-        background-color: #f7f9fc;
-        border-left: 4px solid #1E88E5;
-        margin-bottom: 10px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -46,62 +42,96 @@ st.markdown("""
 # Sidebar
 with st.sidebar:
     st.image("https://img.icons8.com/color/96/artificial-intelligence.png", width=64)
-    st.title("Settings & Agents")
+    st.title("Settings & Models")
 
     provider = st.selectbox(
         "LLM Provider",
-        ["Google Gemini", "OpenAI", "Groq", "Ollama (Local)"],
+        ["Groq (Ultra-Fast)", "Google Gemini", "OpenAI", "DeepSeek", "Ollama (Local)"],
         index=0
     )
 
-    if provider == "Google Gemini":
-        default_model = "gemini/gemini-2.0-flash"
-        env_key = os.getenv("GEMINI_API_KEY", "")
-        api_key = st.text_input("Gemini API Key", value=env_key, type="password")
-        model_name = st.selectbox(
-            "Model",
-            ["gemini/gemini-2.0-flash", "gemini/gemini-1.5-flash", "gemini/gemini-1.5-pro"],
-            index=0
-        )
-    elif provider == "OpenAI":
-        default_model = "gpt-4o-mini"
-        env_key = os.getenv("OPENAI_API_KEY", "")
-        api_key = st.text_input("OpenAI API Key", value=env_key, type="password")
-        model_name = st.selectbox(
-            "Model",
-            ["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"],
-            index=0
-        )
-    elif provider == "Groq":
-        default_model = "groq/llama-3.3-70b-versatile"
+    if provider == "Groq (Ultra-Fast)":
         env_key = os.getenv("GROQ_API_KEY", "")
-        api_key = st.text_input("Groq API Key", value=env_key, type="password")
-        model_name = st.selectbox(
+        api_key = st.text_input("Groq API Key (gsk_...)", value=env_key, type="password")
+        model_selection = st.selectbox(
             "Model",
-            ["groq/llama-3.3-70b-versatile", "groq/mixtral-8x7b-32768"],
+            [
+                "groq/llama-3.3-70b-versatile (Recommended)",
+                "groq/llama-3.1-8b-instant (Fastest / High Rate Limit)",
+                "groq/gemma2-9b-it",
+                "groq/mixtral-8x7b-32768",
+                "Custom Model..."
+            ],
             index=0
         )
-    else:  # Ollama
+        if "Custom Model" in model_selection:
+            model_name = st.text_input("Enter Groq Model ID", value="groq/llama-3.3-70b-versatile")
+        else:
+            model_name = model_selection.split(" ")[0]
+
+    elif provider == "Google Gemini":
+        env_key = os.getenv("GEMINI_API_KEY", "")
+        api_key = st.text_input("Gemini API Key (AIzaSy...)", value=env_key, type="password")
+        model_selection = st.selectbox(
+            "Model",
+            [
+                "gemini/gemini-2.0-flash (Recommended)",
+                "gemini/gemini-1.5-flash",
+                "gemini/gemini-1.5-pro",
+                "Custom Model..."
+            ],
+            index=0
+        )
+        if "Custom Model" in model_selection:
+            model_name = st.text_input("Enter Gemini Model ID", value="gemini/gemini-2.0-flash")
+        else:
+            model_name = model_selection.split(" ")[0]
+
+    elif provider == "OpenAI":
+        env_key = os.getenv("OPENAI_API_KEY", "")
+        api_key = st.text_input("OpenAI API Key (sk-...)", value=env_key, type="password")
+        model_selection = st.selectbox(
+            "Model",
+            ["gpt-4o-mini (Recommended)", "gpt-4o", "Custom Model..."],
+            index=0
+        )
+        if "Custom Model" in model_selection:
+            model_name = st.text_input("Enter OpenAI Model ID", value="gpt-4o-mini")
+        else:
+            model_name = model_selection.split(" ")[0]
+
+    elif provider == "DeepSeek":
+        env_key = os.getenv("DEEPSEEK_API_KEY", "")
+        api_key = st.text_input("DeepSeek API Key (sk-...)", value=env_key, type="password")
+        model_selection = st.selectbox(
+            "Model",
+            ["deepseek/deepseek-chat", "deepseek/deepseek-reasoner", "Custom Model..."],
+            index=0
+        )
+        if "Custom Model" in model_selection:
+            model_name = st.text_input("Enter DeepSeek Model ID", value="deepseek/deepseek-chat")
+        else:
+            model_name = model_selection.split(" ")[0]
+
+    else:  # Ollama Local
         api_key = "ollama"
-        model_name = st.text_input("Ollama Model Name", value="ollama/llama3")
+        model_name = st.text_input("Ollama Model Name", value="ollama/llama3.2")
 
     st.markdown("---")
     st.subheader("👥 Active Crew Agents")
     st.markdown("""
-    **1. 🔍 Senior Research Analyst**  
-    *Scours live web, papers, and Wikipedia for core facts & data.*
-    
-    **2. ⚖️ Critical Fact-Checker**  
-    *Audits claims, cross-references sources, and filters noise.*
-    
-    **3. 📝 Executive Report Writer**  
-    *Structures findings into comprehensive, publication-ready Markdown.*
+    - **🔍 Senior Research Analyst**  
+      *Web intelligence, DuckDuckGo & Wikipedia search.*
+    - **⚖️ Critical Fact-Checker**  
+      *Audits data, eliminates hallucinations & synthesizes insights.*
+    - **📝 Executive Report Writer**  
+      *Composes structured, publication-grade Markdown reports.*
     """)
 
 # Main Content
 st.markdown("<div class='main-header'>🤖 Multi-Agent Research Assistant</div>", unsafe_allow_html=True)
 st.markdown(
-    "<div class='sub-header'>Powered by <b>CrewAI</b> & <b>Agentic AI Architecture</b>. "
+    "<div class='sub-header'>Powered by <b>CrewAI</b> & <b>Agentic AI</b>. "
     "Autonomous agents collaborate to gather intelligence, verify facts, and produce in-depth research reports.</div>",
     unsafe_allow_html=True
 )
@@ -113,7 +143,7 @@ with tab1:
     with col1:
         topic_input = st.text_input(
             "What topic do you want to research?",
-            placeholder="e.g. Next-Generation Multimodal AI Agents in 2026, Quantum Computing breakthroughs, CRISPR therapeutics...",
+            placeholder="e.g. Next-Generation Multimodal AI Agents in 2026, Quantum Computing breakthroughs, Autonomous Drones...",
         )
     with col2:
         st.write("")
@@ -124,9 +154,9 @@ with tab1:
         if not topic_input.strip():
             st.warning("⚠️ Please enter a research topic to proceed.")
         elif provider != "Ollama (Local)" and not api_key.strip():
-            st.error(f"⚠️ Please provide a valid {provider} API key in the sidebar.")
+            st.error(f"⚠️ Please enter your {provider} API key in the sidebar.")
         else:
-            with st.spinner("🤖 Autonomous Crew initialized! Agents are searching the web, auditing data, and composing your report..."):
+            with st.spinner(f"🤖 Autonomous Crew running using `{model_name}`! Agents are searching the web, auditing data, and composing your report..."):
                 try:
                     crew = ResearchCrew(model_name=model_name, api_key=api_key)
                     result = crew.run(topic=topic_input)
