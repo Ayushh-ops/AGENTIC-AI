@@ -17,6 +17,11 @@ EXCLUDED_DOMAINS = [
     "facebook.com",
     "x.com",
     "twitter.com",
+    "medium.com",
+    "substack.com",
+    "perplexity.ai",
+    "docs.perplexity.ai",
+    "pinterest.com",
 ]
 
 

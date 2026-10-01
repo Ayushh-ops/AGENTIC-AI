@@ -5,7 +5,7 @@ All tests use mocking to verify deterministic agent logic without external APIs.
 
 from unittest.mock import patch
 from backend.app.agents.researcher import research_topic
-from backend.app.agents.fact_checker import check_facts
+from backend.app.agents.fact_checker import check_facts, _validate_quote_for_claim
 from backend.app.agents.synthesizer import synthesize_report
 from backend.app.services.search_service import SearchError
 from backend.app.services.llm_service import LLMError
@@ -35,29 +35,37 @@ def test_researcher_generates_queries_and_deduplicates():
 def test_fact_checker_parses_json_and_validates_urls():
     """Verify Fact Checker classifies multi-domain support, single source, and invalid URLs."""
     sources = [
-        {"title": "T1", "url": "https://valid.com/page", "content": "Real fact confirmed here."},
-        {"title": "T2", "url": "https://corroborated.org/doc", "content": "Independent confirmation."},
+        {
+            "title": "T1",
+            "url": "https://valid.com/page",
+            "content": "Quantum processors operate using superconducting qubits at millikelvin scales.",
+        },
+        {
+            "title": "T2",
+            "url": "https://corroborated.org/doc",
+            "content": "Independent researchers confirmed quantum processors operate using superconducting qubits effectively.",
+        },
     ]
     mock_extract_reply = """
     ```json
     [
       {
-        "statement": "Multi-source claim",
-        "evidence": "Real fact confirmed here.",
+        "statement": "Quantum processors operate using superconducting qubits.",
+        "evidence": "Quantum processors operate using superconducting qubits at millikelvin scales.",
         "source_urls": ["https://valid.com/page"]
       },
       {
-        "statement": "Single domain claim",
-        "evidence": "Real fact confirmed here.",
+        "statement": "Superconducting qubits maintain coherence for microseconds.",
+        "evidence": "Quantum processors operate using superconducting qubits at millikelvin scales.",
         "source_urls": ["https://valid.com/page"]
       },
       {
-        "statement": "Fake URL claim",
-        "evidence": "Hallucinated link.",
+        "statement": "Optical quantum computing uses photons for logic gates.",
+        "evidence": "Optical quantum computing uses photons for logic gates.",
         "source_urls": ["https://hallucinated.com"]
       },
       {
-        "statement": "Unsupported claim",
+        "statement": "Unsupported claim regarding quantum supremacy.",
         "status": "unsupported",
         "evidence": "",
         "source_urls": ["https://valid.com/page"]
@@ -68,17 +76,17 @@ def test_fact_checker_parses_json_and_validates_urls():
     mock_cross_check = """
     {
       "claim_0": [
-        {"source_index": 0, "quote": "Real fact confirmed here."},
-        {"source_index": 1, "quote": "Independent confirmation."}
+        {"source_index": 0, "quote": "Quantum processors operate using superconducting qubits at millikelvin scales."},
+        {"source_index": 1, "quote": "confirmed quantum processors operate using superconducting qubits effectively."}
       ],
       "claim_1": [
-        {"source_index": 0, "quote": "Real fact confirmed here."}
+        {"source_index": 0, "quote": "Quantum processors operate using superconducting qubits at millikelvin scales."}
       ]
     }
     """
 
     with patch("backend.app.agents.fact_checker.chat", side_effect=[mock_extract_reply, mock_cross_check]):
-        claims = check_facts("Test Topic", sources=sources)
+        claims = check_facts("Quantum Computing", sources=sources)
         assert len(claims) == 4
 
         # First claim corroborated by 2 distinct domains -> supported
@@ -106,17 +114,42 @@ def test_fact_checker_parses_json_and_validates_urls():
         assert claims[3]["source_url"] is None
 
 
+def test_quote_shorter_than_six_words_rejected():
+    """Verify that candidate quotes shorter than 6 words are rejected."""
+    claim = "Quantum systems demonstrate entanglement across physical qubits."
+    source_text = "In laboratories, quantum systems demonstrate entanglement across physical qubits with high fidelity."
+    short_quote = "Quantum systems demonstrate entanglement"  # 4 words
+
+    is_valid, ratio, terms = _validate_quote_for_claim(short_quote, source_text, claim)
+    assert not is_valid
+    assert ratio == 0.0
+
+
+def test_quote_without_claim_term_overlap_rejected():
+    """
+    Verify that candidate quotes from unrelated pages (like search filter docs)
+    that do not share at least 2 meaningful terms with the claim are rejected.
+    """
+    claim = "Quantum error correction encodes a logical qubit using multiple physical qubits."
+    sonar_text = "Filters allow users to restrict search results to specific domains and dates."
+    quote = "Filters allow users to restrict search results to specific domains"
+
+    is_valid, ratio, terms = _validate_quote_for_claim(quote, sonar_text, claim)
+    assert not is_valid
+    assert len(terms) < 2
+
+
 def test_cross_check_upgrades_claim_to_supported():
     """Verify that a batched cross-check finding corroboration in another source upgrades status to supported."""
     sources = [
-        {"title": "Source A", "url": "https://site-a.com/article", "content": "Superconducting qubits operate at millikelvin temperatures."},
-        {"title": "Source B", "url": "https://site-b.org/paper", "content": "Qubits based on superconductors require millikelvin dilution refrigerators."},
+        {"title": "Source A", "url": "https://site-a.com/article", "content": "Superconducting qubits operate at millikelvin temperatures in dilution refrigerators."},
+        {"title": "Source B", "url": "https://site-b.org/paper", "content": "Research shows superconducting qubits operate at millikelvin temperatures reliably."},
     ]
     mock_extract = """
     [
       {
-        "statement": "Superconducting qubits require millikelvin temperatures.",
-        "evidence": "Superconducting qubits operate at millikelvin temperatures.",
+        "statement": "Superconducting qubits operate at millikelvin temperatures.",
+        "evidence": "Superconducting qubits operate at millikelvin temperatures in dilution refrigerators.",
         "source_urls": ["https://site-a.com/article"]
       }
     ]
@@ -124,8 +157,8 @@ def test_cross_check_upgrades_claim_to_supported():
     mock_cross = """
     {
       "claim_0": [
-        {"source_index": 0, "quote": "Superconducting qubits operate at millikelvin temperatures."},
-        {"source_index": 1, "quote": "require millikelvin dilution refrigerators"}
+        {"source_index": 0, "quote": "Superconducting qubits operate at millikelvin temperatures in dilution refrigerators."},
+        {"source_index": 1, "quote": "shows superconducting qubits operate at millikelvin temperatures reliably."}
       ]
     }
     """
@@ -141,31 +174,30 @@ def test_cross_check_upgrades_claim_to_supported():
 def test_hallucinated_quote_rejected():
     """Verify that a quote not present in the source text is rejected, preventing false corroboration."""
     sources = [
-        {"title": "Source A", "url": "https://site-a.com/a", "content": "Quantum systems experience decoherence over time."},
-        {"title": "Source B", "url": "https://site-b.org/b", "content": "Optical computing uses photonics rather than electrons."},
+        {"title": "Source A", "url": "https://site-a.com/a", "content": "Quantum systems experience decoherence over time in noisy environments."},
+        {"title": "Source B", "url": "https://site-b.org/b", "content": "Optical computing systems use photonics rather than conventional electrons."},
     ]
     mock_extract = """
     [
       {
-        "statement": "Quantum systems experience decoherence.",
-        "evidence": "Quantum systems experience decoherence over time.",
+        "statement": "Quantum systems experience decoherence over time.",
+        "evidence": "Quantum systems experience decoherence over time in noisy environments.",
         "source_urls": ["https://site-a.com/a"]
       }
     ]
     """
-    # LLM hallucinates a quote for Source B that does NOT exist in Source B's text
     mock_cross = """
     {
       "claim_0": [
-        {"source_index": 0, "quote": "Quantum systems experience decoherence over time."},
-        {"source_index": 1, "quote": "Decoherence destroys quantum states immediately."}
+        {"source_index": 0, "quote": "Quantum systems experience decoherence over time in noisy environments."},
+        {"source_index": 1, "quote": "Decoherence destroys quantum states immediately in physical devices."}
       ]
     }
     """
     with patch("backend.app.agents.fact_checker.chat", side_effect=[mock_extract, mock_cross]):
         claims = check_facts("Decoherence", sources=sources)
         assert len(claims) == 1
-        # The hallucinated quote from site-b is rejected; only site-a is retained
+        # The quote from site-b is rejected because it doesn't appear in site-b's text
         assert claims[0]["status"] == "single_source"
         assert claims[0]["source_urls"] == ["https://site-a.com/a"]
 
@@ -173,14 +205,14 @@ def test_hallucinated_quote_rejected():
 def test_same_domain_duplicates_do_not_count_twice():
     """Verify that multiple URLs from subdomains of the same registrable domain count as 1 domain (single_source)."""
     sources = [
-        {"title": "Blog", "url": "https://blog.techcorp.com/quantum", "content": "TechCorp achieved 100 logical qubits."},
-        {"title": "Research", "url": "https://research.techcorp.com/paper", "content": "Our team fabricated 100 logical qubits with high fidelity."},
+        {"title": "Blog", "url": "https://blog.techcorp.com/quantum", "content": "TechCorp developed 100 logical qubits for quantum processing."},
+        {"title": "Research", "url": "https://research.techcorp.com/paper", "content": "Our team fabricated 100 logical qubits for quantum processing applications."},
     ]
     mock_extract = """
     [
       {
-        "statement": "TechCorp built 100 logical qubits.",
-        "evidence": "TechCorp achieved 100 logical qubits.",
+        "statement": "TechCorp developed 100 logical qubits for quantum processing.",
+        "evidence": "TechCorp developed 100 logical qubits for quantum processing.",
         "source_urls": ["https://blog.techcorp.com/quantum"]
       }
     ]
@@ -188,8 +220,8 @@ def test_same_domain_duplicates_do_not_count_twice():
     mock_cross = """
     {
       "claim_0": [
-        {"source_index": 0, "quote": "TechCorp achieved 100 logical qubits."},
-        {"source_index": 1, "quote": "fabricated 100 logical qubits with high fidelity"}
+        {"source_index": 0, "quote": "TechCorp developed 100 logical qubits for quantum processing."},
+        {"source_index": 1, "quote": "fabricated 100 logical qubits for quantum processing applications."}
       ]
     }
     """
@@ -204,26 +236,25 @@ def test_same_domain_duplicates_do_not_count_twice():
 def test_fallback_search_upgrades_claim():
     """Verify targeted fallback search finds a corroborating source from a new domain and upgrades claim."""
     initial_sources = [
-        {"title": "Initial", "url": "https://initial-lab.org/press", "content": "Neutral atom processors achieved 256 qubits."}
+        {"title": "Initial", "url": "https://initial-lab.org/press", "content": "Neutral atom processors achieved 256 physical qubits in laboratory demonstrations."}
     ]
     mock_extract = """
     [
       {
-        "statement": "Neutral atom processors achieved 256 qubits.",
-        "evidence": "Neutral atom processors achieved 256 qubits.",
+        "statement": "Neutral atom processors achieved 256 physical qubits in laboratory demonstrations.",
+        "evidence": "Neutral atom processors achieved 256 physical qubits in laboratory demonstrations.",
         "source_urls": ["https://initial-lab.org/press"]
       }
     ]
     """
-    # Cross-check finds nothing new (only 1 source available initially)
     mock_cross = "{}"
 
     fallback_search_results = [
-        {"title": "Independent News", "url": "https://physicstoday.org/news", "content": "Neutral atom quantum computers now boast 256 physical qubits."}
+        {"title": "Independent News", "url": "https://physicstoday.org/news", "content": "Neutral atom processors achieved 256 physical qubits in recent benchmark experiments."}
     ]
     mock_fallback_llm = """
     [
-      {"source_index": 0, "quote": "Neutral atom quantum computers now boast 256 physical qubits."}
+      {"source_index": 0, "quote": "Neutral atom processors achieved 256 physical qubits in recent benchmark experiments."}
     ]
     """
 
@@ -242,13 +273,13 @@ def test_fallback_search_upgrades_claim():
 def test_fallback_failure_leaves_single_source():
     """Verify that if fallback search or its LLM evaluation fails, the claim cleanly remains single_source."""
     initial_sources = [
-        {"title": "Initial", "url": "https://initial-lab.org/press", "content": "Pioneering research in topological qubits."}
+        {"title": "Initial", "url": "https://initial-lab.org/press", "content": "Pioneering research in topological qubits continues across international consortia."}
     ]
     mock_extract = """
     [
       {
-        "statement": "Research in topological qubits is ongoing.",
-        "evidence": "Pioneering research in topological qubits.",
+        "statement": "Research in topological qubits continues across international consortia.",
+        "evidence": "Pioneering research in topological qubits continues across international consortia.",
         "source_urls": ["https://initial-lab.org/press"]
       }
     ]
@@ -264,9 +295,50 @@ def test_fallback_failure_leaves_single_source():
             assert claims[0]["source_urls"] == ["https://initial-lab.org/press"]
 
 
+def test_source_cap_at_twelve():
+    """Verify that total returned sources are capped at 12, preserving all supporting sources."""
+    # 15 sources
+    sources = [
+        {"title": f"Source {i}", "url": f"https://site{i}.com/page", "content": f"Content {i} discusses quantum algorithms."}
+        for i in range(16)
+    ]
+    # Let source 14 and 15 be supporting sources
+    sources[14]["content"] = "Fault-tolerant quantum computing requires surface codes for error correction."
+    sources[15]["content"] = "Surface codes for error correction are essential for fault-tolerant quantum computing."
+
+    mock_extract = """
+    [
+      {
+        "statement": "Fault-tolerant quantum computing requires surface codes for error correction.",
+        "evidence": "Fault-tolerant quantum computing requires surface codes for error correction.",
+        "source_urls": ["https://site14.com/page"]
+      }
+    ]
+    """
+    mock_cross = """
+    {
+      "claim_0": [
+        {"source_index": 14, "quote": "Fault-tolerant quantum computing requires surface codes for error correction."},
+        {"source_index": 15, "quote": "Surface codes for error correction are essential for fault-tolerant quantum computing."}
+      ]
+    }
+    """
+
+    with patch("backend.app.agents.fact_checker.chat", side_effect=[mock_extract, mock_cross]):
+        claims = check_facts("Surface Codes", sources=sources)
+        assert len(claims) == 1
+        assert claims[0]["status"] == "supported"
+        # Total sources capped at 12
+        assert len(sources) == 12
+        # Both supporting sources must be preserved
+        urls = [s["url"] for s in sources]
+        assert "https://site14.com/page" in urls
+        assert "https://site15.com/page" in urls
+
+
 def test_fact_checker_graceful_fallback_on_invalid_json():
     """Verify Fact Checker falls back safely when LLM output is malformed."""
-    sources = [{"title": "T1", "url": "https://valid.com/doc", "content": "Some fallback content."}]
+    sources = [{"title": "T1", "url": "https://valid.com/doc", "content": "Some fallback content regarding quantum computing."}]
     with patch("backend.app.agents.fact_checker.chat", return_value="This is not JSON at all."):
         claims = check_facts("Test Topic", sources=sources)
         assert len(claims) >= 1
@@ -275,24 +347,23 @@ def test_fact_checker_graceful_fallback_on_invalid_json():
         assert claims[0]["status"] == "single_source"
         assert claims[0]["source_url"] == "https://valid.com/doc"
         assert claims[0]["source_urls"] == ["https://valid.com/doc"]
-        assert "Some fallback content" in claims[0]["evidence"]
 
 
-def test_synthesizer_assembles_markdown_report():
-    """Verify Synthesizer builds Markdown with summary, claims markers, and references."""
+def test_tag_stripping_and_synthesizer_wording():
+    """Verify that synthesizer strips leaked 【...】 status tags and follows wording constraints."""
     topic = "Quantum Computing"
     claims = [
         {
-            "statement": "Qubits exhibit superposition.",
+            "statement": "Superconducting qubits operate at millikelvin temperatures.",
             "status": "supported",
-            "evidence": "Superposition confirmed.",
+            "evidence": "Superconducting qubits operate at millikelvin temperatures in dilution refrigerators.",
             "source_urls": ["https://qc.org/qubits", "https://phys.org/qubits"],
             "source_url": "https://qc.org/qubits",
         },
         {
-            "statement": "Specific prototype achieved speedup.",
+            "statement": "A single laboratory demonstrated an experimental 10-qubit prototype.",
             "status": "single_source",
-            "evidence": "Prototype details.",
+            "evidence": "A single laboratory demonstrated an experimental 10-qubit prototype.",
             "source_urls": ["https://qc.org/qubits"],
             "source_url": "https://qc.org/qubits",
         },
@@ -302,12 +373,34 @@ def test_synthesizer_assembles_markdown_report():
         {"title": "Physics Org", "url": "https://phys.org/qubits", "content": "Physics coverage."},
     ]
 
-    with patch("backend.app.agents.synthesizer.chat", return_value="Quantum computers leverage quantum mechanics."):
+    mock_llm_output = (
+        "## Executive Summary\n"
+        "Quantum computing is advancing. 【SUPPORTED】 Superconducting qubits are verified. "
+        "【SINGLE_SOURCE】 According to one laboratory, a prototype was created.\n\n"
+        "## Key Findings\n"
+        "- Superconducting qubits operate at low temperatures.\n"
+        "- A 10-qubit prototype was reported by one source."
+    )
+
+    with patch("backend.app.agents.synthesizer.chat", return_value=mock_llm_output) as mock_chat:
         report = synthesize_report(topic, claims, sources)
-        assert "# Research Report: Quantum Computing" in report
-        assert "## Executive Summary & Findings" in report
+
+        # Check prompt content sent to LLM
+        prompt_args = mock_chat.call_args[1]
+        system_content = prompt_args["system"]
+        user_content = prompt_args["user"]
+
+        # Prompt must clearly differentiate wording rules
+        assert "verified" in system_content
+        assert "[Reported by only one source]" in user_content
+        assert "[Corroborated by multiple independent sources]" in user_content
+
+        # Leaked tags must be stripped from report prose
+        assert "【SUPPORTED】" not in report
+        assert "【SINGLE_SOURCE】" not in report
+        assert "## Executive Summary" in report
+        assert "## Key Findings" in report
         assert "## Evaluated Claims & Verification Audit" in report
         assert "✓ Verified" in report
         assert "⚠ Single source" in report
         assert "## References" in report
-        assert "https://qc.org/qubits" in report

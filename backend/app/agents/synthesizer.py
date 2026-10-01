@@ -3,6 +3,7 @@ Synthesizer Agent: Generates a well-structured Markdown research report
 with verified claims, key findings, and auditable references.
 """
 
+import re
 from typing import Any, Dict, List
 from backend.app.services.llm_service import chat
 
@@ -15,10 +16,17 @@ def synthesize_report(
     """
     Synthesize research findings into a structured Markdown document.
 
+    Required structure only:
+    - # Research Report: <topic> (Title)
+    - ## Executive Summary (max ~150 words)
+    - ## Key Findings (one bullet per claim, max 6)
+    - ## Evaluated Claims & Verification Audit
+    - ## References
+
     Args:
         topic: The research topic investigated.
         claims: Verified claims list from the Fact Checker agent.
-        sources: De-duplicated sources list from the Researcher agent.
+        sources: Consulted sources list (capped at 12).
 
     Returns:
         A complete Markdown formatted research report.
@@ -26,39 +34,75 @@ def synthesize_report(
     valid_sources = [s for s in sources if s.get("url")]
     valid_urls = {s["url"] for s in valid_sources}
 
-    claims_text = "\n".join(
-        f"- [{c.get('status', 'unverified').upper()}] {c.get('statement')}"
-        for c in claims
-    )
+    # Format claims without raw status tags to prevent tag leakage into prose
+    claims_descriptions = []
+    supported_count = 0
+    total_claims = len(claims)
+
+    for c in claims:
+        st = c.get("status", "unsupported")
+        stmt = c.get("statement", "")
+        if st == "supported":
+            supported_count += 1
+            claims_descriptions.append(f"- [Corroborated by multiple independent sources]: {stmt}")
+        elif st == "single_source":
+            claims_descriptions.append(f"- [Reported by only one source]: {stmt}")
+        else:
+            claims_descriptions.append(f"- [Unsubstantiated / unsupported]: {stmt}")
+
+    claims_text = "\n".join(claims_descriptions) if claims_descriptions else "- No claims evaluated."
     sources_summary = "\n".join(
-        f"- {s.get('title') or s.get('url')}: {s.get('content')[:250]}..."
-        for s in valid_sources[:5]
+        f"- {s.get('title') or s.get('url')}: {(s.get('content') or '')[:250]}..."
+        for s in valid_sources[:6]
+    )
+
+    half_supported = (supported_count >= (total_claims / 2)) if total_claims > 0 else False
+    evidence_constraint = (
+        "CRITICAL: Fewer than half of the evaluated claims are supported by multiple sources. "
+        "The Executive Summary MUST explicitly state that evidence on this topic is limited."
+        if not half_supported else ""
     )
 
     system_prompt = (
-        "You are a lead technical research writer. Your task is to synthesize the provided "
-        "verified claims and source excerpts into a rigorous, objective research report.\n"
-        "Guidelines:\n"
-        "1. Write an Executive Summary and In-Depth Analysis.\n"
-        "2. Do NOT invent new facts or external URLs.\n"
-        "3. Maintain an academic, professional tone."
+        "You are an objective technical research writer. Synthesize the provided evaluated claims into a concise report.\n"
+        "Strict rules:\n"
+        "1. Write ONLY the following two sections in markdown:\n"
+        "   ## Executive Summary\n"
+        "   (Max ~150 words. Objective, grounded strictly in the provided claims and sources.)\n\n"
+        "   ## Key Findings\n"
+        "   (Bulleted list with one bullet per claim, maximum 6 bullets.)\n"
+        "2. Wording rules:\n"
+        "   - The words 'verified', 'confirmed', 'established', or 'well-documented' may ONLY be used for claims marked [Corroborated by multiple independent sources].\n"
+        "   - For claims marked [Reported by only one source], use cautious attribution such as 'reported by one source' or 'according to preliminary reports'. Never describe them as verified.\n"
+        "   - Do NOT state unsupported claims as fact.\n"
+        f"   {evidence_constraint}\n"
+        "3. No filler, comparison tables, or placeholders:\n"
+        "   - Do NOT add statements not backed by a claim or source.\n"
+        "   - Forbid placeholders such as '(implicit in source contexts)'.\n"
+        "   - Do NOT include comparison tables, conclusion sections, or status tags in prose (never write 【...】 or [SUPPORTED] in the body).\n"
+        "4. Do NOT output the document title (# Research Report), the Claims Audit section, or References (they are added automatically)."
     )
+
     user_prompt = (
         f"Research Topic: {topic}\n\n"
-        f"Verified Claims:\n{claims_text}\n\n"
+        f"Evaluated Claims:\n{claims_text}\n\n"
         f"Source Contexts:\n{sources_summary}\n\n"
-        "Compose an Executive Summary and Key Findings based solely on this evidence."
+        "Compose the Executive Summary and Key Findings according to the rules above."
     )
 
-    narrative = chat(system=system_prompt, user=user_prompt, temperature=0.2)
+    raw_narrative = chat(system=system_prompt, user=user_prompt, temperature=0.1)
 
-    # Format the definitive Markdown report
+    # Post-processing: strip any leaked status tags like 【...】 or [SUPPORTED] or [SINGLE_SOURCE]
+    narrative_cleaned = re.sub(r"【.*?】", "", raw_narrative)
+    narrative_cleaned = re.sub(r"\[(SUPPORTED|SINGLE_SOURCE|UNSUPPORTED)\]", "", narrative_cleaned, flags=re.IGNORECASE)
+    # Strip any redundant top-level # Research Report header if generated by LLM
+    narrative_cleaned = re.sub(r"^#\s+Research Report[^\n]*\n*", "", narrative_cleaned.strip(), flags=re.IGNORECASE).strip()
+
+    # Format the definitive Markdown report with strictly required sections
     lines: List[str] = [
         f"# Research Report: {topic}",
         "",
-        "## Executive Summary & Findings",
-        "",
-        narrative.strip(),
+        narrative_cleaned,
         "",
         "## Evaluated Claims & Verification Audit",
         "",
@@ -74,7 +118,7 @@ def synthesize_report(
             else:
                 status_tag = "✗ Unsupported"
 
-            # Resolve citation URLs
+            # Resolve citation URLs strictly from valid_sources
             urls = [u for u in c.get("source_urls", []) if u in valid_urls]
             if not urls and c.get("source_url") and c.get("source_url") in valid_urls:
                 urls = [c["source_url"]]
