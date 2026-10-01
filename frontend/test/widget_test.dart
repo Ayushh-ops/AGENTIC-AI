@@ -77,9 +77,9 @@ void main() {
     await tester.pumpWidget(const ResearchAssistantApp());
     await tester.pump();
 
-    // Verify default selector text
-    expect(find.text('Type: General'), findsOneWidget);
-    expect(find.text('Depth: Standard'), findsOneWidget);
+    // Verify default selector text on visible segmented controls
+    expect(find.text('General'), findsWidgets);
+    expect(find.text('Standard'), findsWidgets);
   });
 
   testWidgets('About dialog displays Researcher, Fact-Checker, and Synthesizer agents with depth description', (WidgetTester tester) async {
@@ -150,6 +150,13 @@ void main() {
     await tester.pumpWidget(const ResearchAssistantApp());
     await tester.pumpAndSettle();
 
+    // Open workspace from landing screen
+    final openAppFinder = find.widgetWithText(FilledButton, 'Open app');
+    if (openAppFinder.evaluate().isNotEmpty) {
+      await tester.tap(openAppFinder.first);
+      await tester.pumpAndSettle();
+    }
+
     // Verify sidebar shows formatted label "News - Deep"
     expect(find.text('News - Deep'), findsOneWidget);
 
@@ -162,6 +169,38 @@ void main() {
     expect(find.text('Depth: Deep'), findsWidgets);
     expect(find.textContaining('Quantum Computing Report'), findsOneWidget);
   });
+
+  testWidgets('Layout renders without RenderFlex overflow at widths 360, 768, and 1280 in light and dark mode', (WidgetTester tester) async {
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+      themeModeNotifier.value = ThemeMode.system;
+    });
+
+    for (final width in [360.0, 768.0, 1280.0]) {
+      for (final mode in [ThemeMode.light, ThemeMode.dark]) {
+        tester.view.physicalSize = Size(width, 800);
+        tester.view.devicePixelRatio = 1.0;
+        themeModeNotifier.value = mode;
+
+        await tester.pumpWidget(const ResearchAssistantApp());
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull,
+            reason: 'RenderFlex overflow occurred on landing screen at width $width in $mode');
+
+        final openAppFinder = find.widgetWithText(FilledButton, 'Open app');
+        if (openAppFinder.evaluate().isNotEmpty) {
+          await tester.tap(openAppFinder.first);
+          await tester.pumpAndSettle();
+
+          expect(tester.takeException(), isNull,
+              reason: 'RenderFlex overflow occurred in workspace at width $width in $mode');
+        }
+      }
+    }
+  });
 }
+
 
 
