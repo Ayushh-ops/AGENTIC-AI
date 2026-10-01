@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../api/api_service.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -20,6 +21,46 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isLoadingResearch = false;
   String? _errorMessage;
   ResearchResponse? _response;
+
+  Future<void> _launchUrlString(String urlStr) async {
+    final trimmed = urlStr.trim();
+    final uri = Uri.tryParse(trimmed);
+    if (uri == null || (!uri.isScheme('http') && !uri.isScheme('https'))) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Invalid URL: $urlStr'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
+
+    try {
+      final launched = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launched && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not open link: $urlStr'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not open link: $urlStr'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
 
   @override
   void initState() {
@@ -338,6 +379,17 @@ class _HomeScreenState extends State<HomeScreen> {
             child: MarkdownBody(
               data: res.reportMarkdown,
               selectable: true,
+              onTapLink: (text, href, title) {
+                if (href != null && href.isNotEmpty) {
+                  _launchUrlString(href);
+                }
+              },
+              styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                a: TextStyle(
+                  color: Theme.of(context).colorScheme.primary,
+                  decoration: TextDecoration.underline,
+                ),
+              ),
             ),
           ),
         ),
@@ -409,11 +461,19 @@ class _HomeScreenState extends State<HomeScreen> {
                         for (final url in claim.sourceUrls.isNotEmpty
                             ? claim.sourceUrls
                             : [claim.sourceUrl!])
-                          SelectableText(
-                            url,
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.primary,
-                              fontSize: 11,
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: MouseRegion(
+                              cursor: SystemMouseCursors.click,
+                              child: SelectableText(
+                                url,
+                                onTap: () => _launchUrlString(url),
+                                style: TextStyle(
+                                  color: Theme.of(context).colorScheme.primary,
+                                  decoration: TextDecoration.underline,
+                                  fontSize: 11,
+                                ),
+                              ),
                             ),
                           ),
                       ],
@@ -448,13 +508,24 @@ class _HomeScreenState extends State<HomeScreen> {
                   source.title.isNotEmpty ? source.title : source.url,
                   style: const TextStyle(fontWeight: FontWeight.w500),
                 ),
-                subtitle: SelectableText(
-                  source.url,
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.primary,
-                    fontSize: 12,
+                subtitle: MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: SelectableText(
+                    source.url,
+                    onTap: () => _launchUrlString(source.url),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.primary,
+                      decoration: TextDecoration.underline,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
+                trailing: IconButton(
+                  icon: const Icon(Icons.open_in_new, size: 16),
+                  tooltip: 'Open link',
+                  onPressed: () => _launchUrlString(source.url),
+                ),
+                onTap: () => _launchUrlString(source.url),
               );
             }).toList(),
           ),
