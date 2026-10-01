@@ -19,6 +19,7 @@ void main() {
     // Find the topic text field.
     final textFieldFinder = find.byType(TextField);
     expect(textFieldFinder, findsOneWidget);
+    expect(find.text('Ask or enter a research topic'), findsOneWidget);
 
     // Enter a valid research topic.
     await tester.enterText(textFieldFinder, 'Quantum Computing in 2026');

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -18,9 +19,33 @@ class _HomeScreenState extends State<HomeScreen> {
   bool? _isBackendConnected;
   String _healthStatusMessage = '';
 
-  bool _isLoadingResearch = false;
+  bool _isLoading = false;
+  String _loadingText = 'Thinking...';
+  Timer? _loadingTimer;
   String? _errorMessage;
-  ResearchResponse? _response;
+  AskResponse? _askResponse;
+
+  String _extractDomain(String url) {
+    try {
+      final uri = Uri.parse(url.trim());
+      var host = uri.host.toLowerCase();
+      if (host.startsWith('www.')) {
+        host = host.substring(4);
+      }
+      return host.isNotEmpty ? host : url;
+    } catch (_) {
+      return url;
+    }
+  }
+
+  String _cleanReportMarkdown(String fullReport) {
+    const delimiter = '## Evaluated Claims & Verification Audit';
+    final index = fullReport.indexOf(delimiter);
+    if (index != -1) {
+      return fullReport.substring(0, index).trim();
+    }
+    return fullReport.trim();
+  }
 
   Future<void> _launchUrlString(String urlStr) async {
     final trimmed = urlStr.trim();
@@ -70,6 +95,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    _loadingTimer?.cancel();
     _topicController.dispose();
     super.dispose();
   }
@@ -81,83 +107,81 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final result = await _apiService.checkHealth();
 
-    setState(() {
-      _isCheckingHealth = false;
-      if (result['success'] == true) {
-        _isBackendConnected = true;
-        _healthStatusMessage = 'Connected (${result['service']})';
-      } else {
-        _isBackendConnected = false;
-        _healthStatusMessage = result['error']?.toString() ?? 'Offline';
-      }
-    });
+    if (mounted) {
+      setState(() {
+        _isCheckingHealth = false;
+        if (result['success'] == true) {
+          _isBackendConnected = true;
+          _healthStatusMessage = 'Connected (${result['service']})';
+        } else {
+          _isBackendConnected = false;
+          _healthStatusMessage = result['error']?.toString() ?? 'Offline';
+        }
+      });
+    }
   }
 
-  Future<void> _executeResearch() async {
-    final topic = _topicController.text.trim();
-    if (topic.isEmpty || _isLoadingResearch) return;
+  Future<void> _executeAsk() async {
+    final message = _topicController.text.trim();
+    if (message.isEmpty || _isLoading) return;
 
     // Dismiss keyboard
     FocusScope.of(context).unfocus();
 
+    _loadingTimer?.cancel();
     setState(() {
-      _isLoadingResearch = true;
+      _isLoading = true;
+      _loadingText = 'Thinking...';
       _errorMessage = null;
-      _response = null;
+      _askResponse = null;
+    });
+
+    // For the first second show "Thinking...", then transition to detailed status
+    _loadingTimer = Timer(const Duration(seconds: 1), () {
+      if (mounted && _isLoading) {
+        setState(() {
+          _loadingText = 'Conducting autonomous web research...';
+        });
+      }
     });
 
     try {
-      final res = await _apiService.research(topic);
-      setState(() {
-        _response = res;
-        _isLoadingResearch = false;
-      });
+      final res = await _apiService.ask(message);
+      _loadingTimer?.cancel();
+      if (mounted) {
+        setState(() {
+          _askResponse = res;
+          _isLoading = false;
+        });
+      }
     } on ApiException catch (e) {
-      setState(() {
-        _errorMessage = e.message;
-        _isLoadingResearch = false;
-      });
+      _loadingTimer?.cancel();
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.message;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
-      setState(() {
-        _errorMessage = 'An unexpected error occurred: $e';
-        _isLoadingResearch = false;
-      });
+      _loadingTimer?.cancel();
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'An unexpected error occurred: $e';
+          _isLoading = false;
+        });
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final bool canSubmit =
-        !_isLoadingResearch && _topicController.text.trim().isNotEmpty;
+        !_isLoading && _topicController.text.trim().isNotEmpty;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Multi-Agent Research Assistant'),
         centerTitle: true,
-        actions: [
-          IconButton(
-            tooltip: 'Check backend connectivity',
-            icon: _isCheckingHealth
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Icon(
-                    _isBackendConnected == true
-                        ? Icons.cloud_done
-                        : (_isBackendConnected == false
-                            ? Icons.cloud_off
-                            : Icons.cloud_queue),
-                    color: _isBackendConnected == true
-                        ? Colors.green
-                        : (_isBackendConnected == false
-                            ? Colors.red
-                            : null),
-                  ),
-            onPressed: _isCheckingHealth ? null : _checkHealth,
-          ),
-        ],
       ),
       body: Center(
         child: ConstrainedBox(
@@ -169,9 +193,16 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 16),
               _buildInputCard(canSubmit),
               const SizedBox(height: 20),
-              if (_isLoadingResearch) _buildLoadingIndicator(),
-              if (_errorMessage != null && !_isLoadingResearch) _buildErrorCard(),
-              if (_response != null && !_isLoadingResearch) _buildResultSection(),
+              if (_isLoading) _buildLoadingIndicator(),
+              if (_errorMessage != null && !_isLoading) _buildErrorCard(),
+              if (_askResponse != null && !_isLoading) ...[
+                if (_askResponse!.mode == 'chat')
+                  _buildChatResponseCard(_askResponse!)
+                else if (_askResponse!.mode == 'research' &&
+                    _askResponse!.research != null)
+                  _buildResultSection(_askResponse!.research!),
+                _buildCallsFooter(_askResponse!),
+              ],
             ],
           ),
         ),
@@ -242,7 +273,9 @@ class _HomeScreenState extends State<HomeScreen> {
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Theme.of(context).dividerColor.withValues(alpha: 0.3)),
+        side: BorderSide(
+          color: Theme.of(context).dividerColor.withValues(alpha: 0.3),
+        ),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -251,16 +284,16 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             TextField(
               controller: _topicController,
-              enabled: !_isLoadingResearch,
+              enabled: !_isLoading,
               textInputAction: TextInputAction.search,
               decoration: InputDecoration(
-                labelText: 'Research Topic',
-                hintText: 'e.g., Quantum Computing in 2026',
+                labelText: 'Ask or enter a research topic',
+                hintText: 'e.g., Hi, or explore Quantum Computing in 2026',
                 prefixIcon: const Icon(Icons.search),
                 suffixIcon: _topicController.text.isNotEmpty
                     ? IconButton(
                         icon: const Icon(Icons.clear, size: 18),
-                        onPressed: _isLoadingResearch
+                        onPressed: _isLoading
                             ? null
                             : () {
                                 _topicController.clear();
@@ -272,12 +305,12 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               onChanged: (_) => setState(() {}),
               onSubmitted: (_) {
-                if (canSubmit) _executeResearch();
+                if (canSubmit) _executeAsk();
               },
             ),
             const SizedBox(height: 12),
             FilledButton.icon(
-              onPressed: canSubmit ? _executeResearch : null,
+              onPressed: canSubmit ? _executeAsk : null,
               icon: const Icon(Icons.auto_awesome, size: 18),
               label: const Text('Research', style: TextStyle(fontSize: 16)),
             ),
@@ -290,27 +323,35 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildLoadingIndicator() {
     return Card(
       elevation: 0,
-      color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+      color: Theme.of(context)
+          .colorScheme
+          .surfaceContainerHighest
+          .withValues(alpha: 0.4),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
       ),
-      child: const Padding(
-        padding: EdgeInsets.all(32),
+      child: Padding(
+        padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
             Text(
-              'Conducting autonomous web research...',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              _loadingText,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
             ),
-            SizedBox(height: 6),
-            Text(
-              'Researcher, Fact Checker, and Synthesizer agents are analyzing evidence.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, color: Colors.black54),
-            ),
+            if (_loadingText != 'Thinking...') ...[
+              const SizedBox(height: 6),
+              Text(
+                'Researcher, Fact Checker, and Synthesizer agents are analyzing evidence.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -337,7 +378,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Research Request Failed',
+                    'Request Failed',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       color: Color(0xFF991B1B),
@@ -361,23 +402,94 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildResultSection() {
-    final res = _response!;
+  Widget _buildChatResponseCard(AskResponse res) {
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: Theme.of(context).dividerColor.withValues(alpha: 0.3),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.chat_bubble_outline,
+                  size: 18,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Assistant',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            SelectableText(
+              res.reply ?? '',
+              style: const TextStyle(fontSize: 15, height: 1.5),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCallsFooter(AskResponse res) {
+    final llm = res.llmCalls ?? 0;
+    final search = res.searchCalls ?? 0;
+    return Padding(
+      padding: const EdgeInsets.only(top: 10, bottom: 20),
+      child: Center(
+        child: Text(
+          'LLM calls: $llm - Searches: $search',
+          style: TextStyle(
+            fontSize: 12,
+            color: Theme.of(context).colorScheme.outline,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildResultSection(ResearchResponse res) {
+    final markdownContent = _cleanReportMarkdown(res.reportMarkdown);
+
+    // Build URL to title map for claims
+    final sourceTitleMap = <String, String>{};
+    for (final s in res.sources) {
+      if (s.url.isNotEmpty) {
+        sourceTitleMap[s.url] = s.title;
+      }
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Report Markdown Card
+        // Report Markdown Card (only executive summary / key findings, audit & sources are in interactive panels below)
         Card(
           elevation: 0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Theme.of(context).dividerColor.withValues(alpha: 0.3)),
+            side: BorderSide(
+              color: Theme.of(context).dividerColor.withValues(alpha: 0.3),
+            ),
           ),
           child: Padding(
             padding: const EdgeInsets.all(20),
             child: MarkdownBody(
-              data: res.reportMarkdown,
+              data: markdownContent,
               selectable: true,
               onTapLink: (text, href, title) {
                 if (href != null && href.isNotEmpty) {
@@ -395,12 +507,14 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         const SizedBox(height: 16),
 
-        // Collapsible Claims List
+        // Collapsible Claims List (expanded by default, shows count)
         Card(
           elevation: 0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Theme.of(context).dividerColor.withValues(alpha: 0.3)),
+            side: BorderSide(
+              color: Theme.of(context).dividerColor.withValues(alpha: 0.3),
+            ),
           ),
           child: ExpansionTile(
             initiallyExpanded: true,
@@ -410,12 +524,19 @@ class _HomeScreenState extends State<HomeScreen> {
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
             children: res.claims.map((claim) {
+              final urls = claim.sourceUrls.isNotEmpty
+                  ? claim.sourceUrls
+                  : (claim.sourceUrl != null ? [claim.sourceUrl!] : <String>[]);
+
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                    color: Theme.of(context)
+                        .colorScheme
+                        .surfaceContainerHighest
+                        .withValues(alpha: 0.3),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Column(
@@ -438,40 +559,90 @@ class _HomeScreenState extends State<HomeScreen> {
                         ],
                       ),
                       if (claim.evidence.isNotEmpty) ...[
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 10),
                         Container(
-                          padding: const EdgeInsets.all(8),
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.03),
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: Colors.black12),
+                            color: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .outlineVariant
+                                  .withValues(alpha: 0.5),
+                            ),
                           ),
                           child: Text(
                             'Evidence: "${claim.evidence}"',
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontStyle: FontStyle.italic,
-                              fontSize: 12,
-                              color: Colors.black87,
+                              fontSize: 13,
+                              color: Theme.of(context).colorScheme.onSurface,
                             ),
                           ),
                         ),
                       ],
-                      if (claim.sourceUrls.isNotEmpty || claim.sourceUrl != null) ...[
-                        const SizedBox(height: 6),
-                        for (final url in claim.sourceUrls.isNotEmpty
-                            ? claim.sourceUrls
-                            : [claim.sourceUrl!])
+                      if (urls.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        for (final url in urls)
                           Padding(
-                            padding: const EdgeInsets.only(top: 2),
-                            child: MouseRegion(
-                              cursor: SystemMouseCursors.click,
-                              child: SelectableText(
-                                url,
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Tooltip(
+                              message: url,
+                              child: InkWell(
                                 onTap: () => _launchUrlString(url),
-                                style: TextStyle(
-                                  color: Theme.of(context).colorScheme.primary,
-                                  decoration: TextDecoration.underline,
-                                  fontSize: 11,
+                                borderRadius: BorderRadius.circular(4),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 2),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      if (sourceTitleMap[url] != null &&
+                                          sourceTitleMap[url]!.trim().isNotEmpty &&
+                                          sourceTitleMap[url]!.trim() != url)
+                                        Padding(
+                                          padding: const EdgeInsets.only(bottom: 2),
+                                          child: Text(
+                                            sourceTitleMap[url]!.trim(),
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w500,
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .onSurface,
+                                            ),
+                                          ),
+                                        ),
+                                      Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            Icons.link,
+                                            size: 14,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .primary,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            _extractDomain(url),
+                                            style: TextStyle(
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .primary,
+                                              decoration:
+                                                  TextDecoration.underline,
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
@@ -486,12 +657,14 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         const SizedBox(height: 16),
 
-        // Collapsible Sources List
+        // Collapsible Sources List (collapsed by default, shows count)
         Card(
           elevation: 0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Theme.of(context).dividerColor.withValues(alpha: 0.3)),
+            side: BorderSide(
+              color: Theme.of(context).dividerColor.withValues(alpha: 0.3),
+            ),
           ),
           child: ExpansionTile(
             initiallyExpanded: false,
@@ -501,28 +674,42 @@ class _HomeScreenState extends State<HomeScreen> {
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
             children: res.sources.map((source) {
+              final domain = _extractDomain(source.url);
+              final hasTitle = source.title.trim().isNotEmpty &&
+                  source.title.trim() != source.url;
+
               return ListTile(
                 dense: true,
                 leading: const Icon(Icons.language, size: 20),
-                title: Text(
-                  source.title.isNotEmpty ? source.title : source.url,
-                  style: const TextStyle(fontWeight: FontWeight.w500),
-                ),
-                subtitle: MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  child: SelectableText(
-                    source.url,
+                title: hasTitle
+                    ? Text(
+                        source.title.trim(),
+                        style: const TextStyle(fontWeight: FontWeight.w500),
+                      )
+                    : null,
+                subtitle: Tooltip(
+                  message: source.url,
+                  child: InkWell(
                     onTap: () => _launchUrlString(source.url),
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.primary,
-                      decoration: TextDecoration.underline,
-                      fontSize: 12,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          domain,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.primary,
+                            decoration: TextDecoration.underline,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
                 trailing: IconButton(
                   icon: const Icon(Icons.open_in_new, size: 16),
-                  tooltip: 'Open link',
+                  tooltip: source.url,
                   onPressed: () => _launchUrlString(source.url),
                 ),
                 onTap: () => _launchUrlString(source.url),

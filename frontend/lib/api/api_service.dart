@@ -86,6 +86,35 @@ class ResearchResponse {
   }
 }
 
+/// Response model returned by the POST /ask router endpoint.
+class AskResponse {
+  final String mode;
+  final String? reply;
+  final ResearchResponse? research;
+  final int? llmCalls;
+  final int? searchCalls;
+
+  const AskResponse({
+    required this.mode,
+    this.reply,
+    this.research,
+    this.llmCalls,
+    this.searchCalls,
+  });
+
+  factory AskResponse.fromJson(Map<String, dynamic> json) {
+    return AskResponse(
+      mode: json['mode'] as String? ?? 'chat',
+      reply: json['reply'] as String?,
+      research: json['research'] != null
+          ? ResearchResponse.fromJson(json['research'] as Map<String, dynamic>)
+          : null,
+      llmCalls: json['llm_calls'] as int?,
+      searchCalls: json['search_calls'] as int?,
+    );
+  }
+}
+
 /// Exception representing an error encountered during backend communication.
 class ApiException implements Exception {
   final String message;
@@ -149,6 +178,51 @@ class ApiService {
       if (response.statusCode == 200) {
         final data = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
         return ResearchResponse.fromJson(data);
+      } else if (response.statusCode == 503) {
+        throw const ApiException('API keys not configured', statusCode: 503);
+      } else if (response.statusCode == 502) {
+        String detail = 'Research workflow error occurred.';
+        try {
+          final errorData = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+          if (errorData.containsKey('detail') && errorData['detail'] != null) {
+            detail = errorData['detail'].toString();
+          }
+        } catch (_) {}
+        throw ApiException(detail, statusCode: 502);
+      } else {
+        String detail = 'Server error (${response.statusCode})';
+        try {
+          final errorData = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+          if (errorData.containsKey('detail') && errorData['detail'] != null) {
+            detail = errorData['detail'].toString();
+          }
+        } catch (_) {}
+        throw ApiException(detail, statusCode: response.statusCode);
+      }
+    } on TimeoutException {
+      throw const ApiException('Request timed out after 120 seconds. Please try again.');
+    } on http.ClientException catch (e) {
+      throw ApiException('Network connection failed: ${e.message}');
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw const ApiException('Network connection failed. Could not reach backend server.');
+    }
+  }
+
+  /// Queries the POST /ask router endpoint with a 120-second timeout.
+  Future<AskResponse> ask(String message) async {
+    final uri = Uri.parse('$baseUrl/ask');
+    final headers = {'Content-Type': 'application/json'};
+    final body = jsonEncode({'message': message.trim()});
+
+    try {
+      final response = await _client
+          .post(uri, headers: headers, body: body)
+          .timeout(const Duration(seconds: 120));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+        return AskResponse.fromJson(data);
       } else if (response.statusCode == 503) {
         throw const ApiException('API keys not configured', statusCode: 503);
       } else if (response.statusCode == 502) {
