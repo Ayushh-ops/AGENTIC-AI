@@ -210,10 +210,21 @@ class ApiService {
   }
 
   /// Queries the POST /ask router endpoint with a 120-second timeout.
-  Future<AskResponse> ask(String message) async {
+  Future<AskResponse> ask(
+    String message, {
+    String? researchType,
+    String? depth,
+  }) async {
     final uri = Uri.parse('$baseUrl/ask');
     final headers = {'Content-Type': 'application/json'};
-    final body = jsonEncode({'message': message.trim()});
+    final Map<String, dynamic> payload = {'message': message.trim()};
+    if (researchType != null && researchType.isNotEmpty) {
+      payload['research_type'] = researchType;
+    }
+    if (depth != null && depth.isNotEmpty) {
+      payload['depth'] = depth;
+    }
+    final body = jsonEncode(payload);
 
     try {
       final response = await _client

@@ -9,6 +9,8 @@ class HistoryItem {
   final String mode; // 'chat' or 'research'
   final String? reply;
   final ResearchResponse? research;
+  final String? researchType; // 'general', 'news', 'academic'
+  final String? depth; // 'quick', 'standard', 'deep'
   final int timestamp;
 
   const HistoryItem({
@@ -17,8 +19,24 @@ class HistoryItem {
     required this.mode,
     this.reply,
     this.research,
+    this.researchType,
+    this.depth,
     required this.timestamp,
   });
+
+  /// Formatted tag for sidebar list display, e.g. "News - Deep".
+  String? get formattedTypeAndDepth {
+    if (mode != 'research') return null;
+    final t = (researchType != null && researchType!.trim().isNotEmpty)
+        ? researchType!.trim().toLowerCase()
+        : 'general';
+    final d = (depth != null && depth!.trim().isNotEmpty)
+        ? depth!.trim().toLowerCase()
+        : 'standard';
+    final tCap = t[0].toUpperCase() + t.substring(1);
+    final dCap = d[0].toUpperCase() + d.substring(1);
+    return '$tCap - $dCap';
+  }
 
   Map<String, dynamic> toJson() {
     return {
@@ -26,6 +44,8 @@ class HistoryItem {
       'message': message,
       'mode': mode,
       'reply': reply,
+      'research_type': researchType,
+      'depth': depth,
       'research': research != null
           ? {
               'topic': research!.topic,
@@ -59,6 +79,8 @@ class HistoryItem {
       message: json['message'] as String? ?? '',
       mode: json['mode'] as String? ?? 'research',
       reply: json['reply'] as String?,
+      researchType: json['research_type'] as String?,
+      depth: json['depth'] as String?,
       research: json['research'] != null
           ? ResearchResponse.fromJson(json['research'] as Map<String, dynamic>)
           : null,

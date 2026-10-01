@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../api/api_service.dart';
 import '../main.dart';
@@ -19,6 +20,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   bool _isSidebarOpen = true;
   List<HistoryItem> _history = [];
+
+  String _selectedType = 'general'; // 'general' | 'news' | 'academic'
+  String _selectedDepth = 'standard'; // 'quick' | 'standard' | 'deep'
+  String? _activeResearchType;
+  String? _activeResearchDepth;
 
   bool _isLoading = false;
   String _loadingText = 'Thinking...';
@@ -91,6 +97,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _loadPreferences();
     _loadHistory();
   }
 
@@ -99,6 +106,40 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadingTimer?.cancel();
     _topicController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadPreferences() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedType = prefs.getString('app_research_type');
+      final savedDepth = prefs.getString('app_research_depth');
+      if (mounted) {
+        setState(() {
+          if (savedType != null &&
+              ['general', 'news', 'academic'].contains(savedType)) {
+            _selectedType = savedType;
+          }
+          if (savedDepth != null &&
+              ['quick', 'standard', 'deep'].contains(savedDepth)) {
+            _selectedDepth = savedDepth;
+          }
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _saveTypePreference(String type) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('app_research_type', type);
+    } catch (_) {}
+  }
+
+  Future<void> _saveDepthPreference(String depth) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('app_research_depth', depth);
+    } catch (_) {}
   }
 
   Future<void> _loadHistory() async {
@@ -110,13 +151,20 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _saveToHistory(String message, AskResponse res) {
+  void _saveToHistory(
+    String message,
+    AskResponse res, {
+    String? researchType,
+    String? depth,
+  }) {
     final newItem = HistoryItem(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       message: message,
       mode: res.mode,
       reply: res.reply,
       research: res.research,
+      researchType: researchType,
+      depth: depth,
       timestamp: DateTime.now().millisecondsSinceEpoch,
     );
 
@@ -151,6 +199,8 @@ class _HomeScreenState extends State<HomeScreen> {
       _topicController.text = item.message;
       _errorMessage = null;
       _isLoading = false;
+      _activeResearchType = item.researchType ?? 'general';
+      _activeResearchDepth = item.depth ?? 'standard';
       _askResponse = AskResponse(
         mode: item.mode,
         reply: item.reply,
@@ -170,6 +220,8 @@ class _HomeScreenState extends State<HomeScreen> {
       _errorMessage = null;
       _askResponse = null;
       _isLoading = false;
+      _activeResearchType = null;
+      _activeResearchDepth = null;
     });
     if (Navigator.of(context).canPop()) {
       Navigator.of(context).pop();
@@ -190,6 +242,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final message = _topicController.text.trim();
     if (message.isEmpty || _isLoading) return;
 
+    final typeToRun = _selectedType;
+    final depthToRun = _selectedDepth;
+
     FocusScope.of(context).unfocus();
 
     _loadingTimer?.cancel();
@@ -209,14 +264,25 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
-      final res = await _apiService.ask(message);
+      final res = await _apiService.ask(
+        message,
+        researchType: typeToRun,
+        depth: depthToRun,
+      );
       _loadingTimer?.cancel();
       if (mounted) {
         setState(() {
+          _activeResearchType = typeToRun;
+          _activeResearchDepth = depthToRun;
           _askResponse = res;
           _isLoading = false;
         });
-        _saveToHistory(message, res);
+        _saveToHistory(
+          message,
+          res,
+          researchType: typeToRun,
+          depth: depthToRun,
+        );
       }
     } on ApiException catch (e) {
       _loadingTimer?.cancel();
@@ -272,7 +338,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    'How it works',
+                    'The 3 Autonomous Agents',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
@@ -281,7 +347,23 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(height: 4),
                   const Text(
-                    'Researcher gathers live sources -> Fact-Checker extracts and audits claims against evidence -> Synthesizer writes the grounded report.',
+                    '• Researcher: Deconstructs the topic and gathers relevant live web sources via targeted search queries.\n'
+                    '• Fact-Checker: Audits sources, extracts factual claims, and evaluates multi-source corroboration with strict quote validation.\n'
+                    '• Synthesizer: Compiles verified claims and cited sources into a transparent, structured report.',
+                    style: TextStyle(fontSize: 13),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Research Depth',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: colorScheme.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Quick provides a fast single-search summary, Standard balances speed and corroboration, while Deep checks more sources but takes longer and uses more API calls.',
                     style: TextStyle(fontSize: 13),
                   ),
                   const SizedBox(height: 12),
@@ -484,6 +566,16 @@ class _HomeScreenState extends State<HomeScreen> {
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(fontSize: 13),
                           ),
+                          subtitle: (!isChat && item.formattedTypeAndDepth != null)
+                              ? Text(
+                                  item.formattedTypeAndDepth!,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: colorScheme.onSurfaceVariant
+                                        .withValues(alpha: 0.8),
+                                  ),
+                                )
+                              : null,
                           trailing: IconButton(
                             icon: const Icon(Icons.close, size: 14),
                             tooltip: 'Delete',
@@ -604,64 +696,350 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildSearchBar({required bool canSubmit, required bool isHero}) {
     final colorScheme = Theme.of(context).colorScheme;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(28),
-        border: Border.all(
-          color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment:
+          isHero ? CrossAxisAlignment.center : CrossAxisAlignment.start,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(
+              color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+            ),
+          ),
+          padding: EdgeInsets.symmetric(
+            horizontal: isHero ? 14 : 10,
+            vertical: isHero ? 4 : 2,
+          ),
+          child: Row(
+            children: [
+              Icon(
+                Icons.search,
+                color: colorScheme.onSurfaceVariant,
+                size: isHero ? 22 : 20,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: _topicController,
+                  enabled: !_isLoading,
+                  textInputAction: TextInputAction.search,
+                  decoration: const InputDecoration(
+                    hintText: 'Ask or enter a research topic',
+                    border: InputBorder.none,
+                    isDense: true,
+                  ),
+                  onChanged: (_) => setState(() {}),
+                  onSubmitted: (_) {
+                    if (canSubmit) _executeAsk();
+                  },
+                ),
+              ),
+              if (_topicController.text.isNotEmpty)
+                IconButton(
+                  icon: const Icon(Icons.clear, size: 18),
+                  onPressed: _isLoading
+                      ? null
+                      : () {
+                          _topicController.clear();
+                          setState(() {});
+                        },
+                ),
+              const SizedBox(width: 4),
+              FilledButton.icon(
+                onPressed: canSubmit ? _executeAsk : null,
+                icon: const Icon(Icons.auto_awesome, size: 16),
+                label: const Text('Research'),
+                style: FilledButton.styleFrom(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        _buildTypeAndDepthSelectors(colorScheme),
+      ],
+    );
+  }
+
+  Widget _buildTypeAndDepthSelectors(ColorScheme colorScheme) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      child: Wrap(
+        spacing: 10,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          _buildTypeSelector(colorScheme),
+          _buildDepthSelector(colorScheme),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTypeSelector(ColorScheme colorScheme) {
+    final typeInfo = {
+      'general': {
+        'label': 'General',
+        'icon': Icons.public,
+        'tooltip': 'General: searches across authoritative public web sources',
+      },
+      'news': {
+        'label': 'News',
+        'icon': Icons.newspaper,
+        'tooltip': 'News: recent news articles from the past 30 days',
+      },
+      'academic': {
+        'label': 'Academic',
+        'icon': Icons.school,
+        'tooltip': 'Academic: peer-reviewed journals & preprint archives',
+      },
+    };
+
+    final current = typeInfo[_selectedType] ?? typeInfo['general']!;
+
+    return Tooltip(
+      message: current['tooltip'] as String,
+      child: PopupMenuButton<String>(
+        enabled: !_isLoading,
+        initialValue: _selectedType,
+        tooltip: 'Select research type',
+        onSelected: (val) {
+          setState(() {
+            _selectedType = val;
+          });
+          _saveTypePreference(val);
+        },
+        itemBuilder: (context) => [
+          _buildSelectorMenuItem(
+            value: 'general',
+            label: 'General',
+            icon: Icons.public,
+            desc: 'General public web sources',
+            isSelected: _selectedType == 'general',
+            colorScheme: colorScheme,
+          ),
+          _buildSelectorMenuItem(
+            value: 'news',
+            label: 'News',
+            icon: Icons.newspaper,
+            desc: 'Recent news (last 30 days)',
+            isSelected: _selectedType == 'news',
+            colorScheme: colorScheme,
+          ),
+          _buildSelectorMenuItem(
+            value: 'academic',
+            label: 'Academic',
+            icon: Icons.school,
+            desc: 'Peer-reviewed journals & preprints',
+            isSelected: _selectedType == 'academic',
+            colorScheme: colorScheme,
+          ),
+        ],
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                current['icon'] as IconData,
+                size: 15,
+                color: _isLoading
+                    ? colorScheme.onSurface.withValues(alpha: 0.38)
+                    : colorScheme.primary,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'Type: ${current['label']}',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: _isLoading
+                      ? colorScheme.onSurface.withValues(alpha: 0.38)
+                      : colorScheme.onSurface,
+                ),
+              ),
+              const SizedBox(width: 2),
+              Icon(
+                Icons.arrow_drop_down,
+                size: 16,
+                color: _isLoading
+                    ? colorScheme.onSurface.withValues(alpha: 0.38)
+                    : colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
         ),
       ),
-      padding: EdgeInsets.symmetric(
-        horizontal: isHero ? 14 : 10,
-        vertical: isHero ? 4 : 2,
+    );
+  }
+
+  Widget _buildDepthSelector(ColorScheme colorScheme) {
+    final depthInfo = {
+      'quick': {
+        'label': 'Quick',
+        'icon': Icons.bolt,
+        'tooltip': 'Quick: 1 search, ~3 LLM calls, fast summary',
+      },
+      'standard': {
+        'label': 'Standard',
+        'icon': Icons.tune,
+        'tooltip': 'Standard: up to 3 queries, multi-source corroboration',
+      },
+      'deep': {
+        'label': 'Deep',
+        'icon': Icons.layers,
+        'tooltip': 'Deep: up to 4 queries, fallback searches, up to 15 sources',
+      },
+    };
+
+    final current = depthInfo[_selectedDepth] ?? depthInfo['standard']!;
+
+    return Tooltip(
+      message: current['tooltip'] as String,
+      child: PopupMenuButton<String>(
+        enabled: !_isLoading,
+        initialValue: _selectedDepth,
+        tooltip: 'Select research depth',
+        onSelected: (val) {
+          setState(() {
+            _selectedDepth = val;
+          });
+          _saveDepthPreference(val);
+        },
+        itemBuilder: (context) => [
+          _buildSelectorMenuItem(
+            value: 'quick',
+            label: 'Quick',
+            icon: Icons.bolt,
+            desc: 'Single search, fast summary',
+            isSelected: _selectedDepth == 'quick',
+            colorScheme: colorScheme,
+          ),
+          _buildSelectorMenuItem(
+            value: 'standard',
+            label: 'Standard',
+            icon: Icons.tune,
+            desc: 'Up to 3 queries, multi-source corroboration',
+            isSelected: _selectedDepth == 'standard',
+            colorScheme: colorScheme,
+          ),
+          _buildSelectorMenuItem(
+            value: 'deep',
+            label: 'Deep',
+            icon: Icons.layers,
+            desc: 'Up to 4 queries, 15 sources, deep checks',
+            isSelected: _selectedDepth == 'deep',
+            colorScheme: colorScheme,
+          ),
+        ],
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                current['icon'] as IconData,
+                size: 15,
+                color: _isLoading
+                    ? colorScheme.onSurface.withValues(alpha: 0.38)
+                    : colorScheme.primary,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'Depth: ${current['label']}',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: _isLoading
+                      ? colorScheme.onSurface.withValues(alpha: 0.38)
+                      : colorScheme.onSurface,
+                ),
+              ),
+              const SizedBox(width: 2),
+              Icon(
+                Icons.arrow_drop_down,
+                size: 16,
+                color: _isLoading
+                    ? colorScheme.onSurface.withValues(alpha: 0.38)
+                    : colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
       ),
+    );
+  }
+
+  PopupMenuItem<String> _buildSelectorMenuItem({
+    required String value,
+    required String label,
+    required IconData icon,
+    required String desc,
+    required bool isSelected,
+    required ColorScheme colorScheme,
+  }) {
+    return PopupMenuItem<String>(
+      value: value,
       child: Row(
         children: [
           Icon(
-            Icons.search,
-            color: colorScheme.onSurfaceVariant,
-            size: isHero ? 22 : 20,
+            icon,
+            size: 18,
+            color:
+                isSelected ? colorScheme.primary : colorScheme.onSurfaceVariant,
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: TextField(
-              controller: _topicController,
-              enabled: !_isLoading,
-              textInputAction: TextInputAction.search,
-              decoration: const InputDecoration(
-                hintText: 'Ask or enter a research topic',
-                border: InputBorder.none,
-                isDense: true,
-              ),
-              onChanged: (_) => setState(() {}),
-              onSubmitted: (_) {
-                if (canSubmit) _executeAsk();
-              },
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                    color: isSelected
+                        ? colorScheme.primary
+                        : colorScheme.onSurface,
+                  ),
+                ),
+                Text(
+                  desc,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
             ),
           ),
-          if (_topicController.text.isNotEmpty)
-            IconButton(
-              icon: const Icon(Icons.clear, size: 18),
-              onPressed: _isLoading
-                  ? null
-                  : () {
-                      _topicController.clear();
-                      setState(() {});
-                    },
-            ),
-          const SizedBox(width: 4),
-          FilledButton.icon(
-            onPressed: canSubmit ? _executeAsk : null,
-            icon: const Icon(Icons.auto_awesome, size: 16),
-            label: const Text('Research'),
-            style: FilledButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
-            ),
-          ),
+          if (isSelected) ...[
+            const SizedBox(width: 6),
+            Icon(Icons.check, size: 16, color: colorScheme.primary),
+          ],
         ],
       ),
     );
@@ -691,7 +1069,7 @@ class _HomeScreenState extends State<HomeScreen> {
             if (_loadingText != 'Thinking...') ...[
               const SizedBox(height: 6),
               Text(
-                'Researcher, Fact Checker, and Synthesizer agents are analyzing evidence.',
+                'Researcher, Fact-Checker, and Synthesizer agents are analyzing evidence.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 13,
@@ -798,6 +1176,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildResultSection(ResearchResponse res) {
     final markdownContent = _cleanReportMarkdown(res.reportMarkdown);
+    final colorScheme = Theme.of(context).colorScheme;
 
     // Build URL to title map for claims
     final sourceTitleMap = <String, String>{};
@@ -806,6 +1185,9 @@ class _HomeScreenState extends State<HomeScreen> {
         sourceTitleMap[s.url] = s.title;
       }
     }
+
+    final activeType = _activeResearchType ?? _selectedType;
+    final activeDepth = _activeResearchDepth ?? _selectedDepth;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -821,20 +1203,43 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           child: Padding(
             padding: const EdgeInsets.all(20),
-            child: MarkdownBody(
-              data: markdownContent,
-              selectable: true,
-              onTapLink: (text, href, title) {
-                if (href != null && href.isNotEmpty) {
-                  _launchUrlString(href);
-                }
-              },
-              styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-                a: TextStyle(
-                  color: Theme.of(context).colorScheme.primary,
-                  decoration: TextDecoration.underline,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Small chips at the top of the research report
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    _buildReportChip(
+                      icon: _iconForType(activeType),
+                      label: 'Type: ${_formatType(activeType)}',
+                      colorScheme: colorScheme,
+                    ),
+                    _buildReportChip(
+                      icon: _iconForDepth(activeDepth),
+                      label: 'Depth: ${_formatDepth(activeDepth)}',
+                      colorScheme: colorScheme,
+                    ),
+                  ],
                 ),
-              ),
+                const SizedBox(height: 16),
+                MarkdownBody(
+                  data: markdownContent,
+                  selectable: true,
+                  onTapLink: (text, href, title) {
+                    if (href != null && href.isNotEmpty) {
+                      _launchUrlString(href);
+                    }
+                  },
+                  styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                    a: TextStyle(
+                      color: Theme.of(context).colorScheme.primary,
+                      decoration: TextDecoration.underline,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -1101,4 +1506,77 @@ class _HomeScreenState extends State<HomeScreen> {
         );
     }
   }
+
+  Widget _buildReportChip({
+    required IconData icon,
+    required String label,
+    required ColorScheme colorScheme,
+  }) {
+    return Chip(
+      avatar: Icon(icon, size: 14, color: colorScheme.primary),
+      label: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: colorScheme.onSurfaceVariant,
+        ),
+      ),
+      backgroundColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+      side: BorderSide(
+        color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+      ),
+      visualDensity: VisualDensity.compact,
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+    );
+  }
+
+  String _formatType(String? type) {
+    switch (type?.toLowerCase()) {
+      case 'news':
+        return 'News';
+      case 'academic':
+        return 'Academic';
+      case 'general':
+      default:
+        return 'General';
+    }
+  }
+
+  IconData _iconForType(String? type) {
+    switch (type?.toLowerCase()) {
+      case 'news':
+        return Icons.newspaper;
+      case 'academic':
+        return Icons.school;
+      case 'general':
+      default:
+        return Icons.public;
+    }
+  }
+
+  String _formatDepth(String? depth) {
+    switch (depth?.toLowerCase()) {
+      case 'quick':
+        return 'Quick';
+      case 'deep':
+        return 'Deep';
+      case 'standard':
+      default:
+        return 'Standard';
+    }
+  }
+
+  IconData _iconForDepth(String? depth) {
+    switch (depth?.toLowerCase()) {
+      case 'quick':
+        return Icons.bolt;
+      case 'deep':
+        return Icons.layers;
+      case 'standard':
+      default:
+        return Icons.tune;
+    }
+  }
 }
+
