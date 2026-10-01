@@ -151,7 +151,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Open workspace from landing screen
-    final openAppFinder = find.widgetWithText(FilledButton, 'Open app');
+    final openAppFinder = find.widgetWithText(FilledButton, 'Get started');
     if (openAppFinder.evaluate().isNotEmpty) {
       await tester.tap(openAppFinder.first);
       await tester.pumpAndSettle();
@@ -167,7 +167,7 @@ void main() {
     // Verify report card renders chips for Type and Depth
     expect(find.text('Type: News'), findsWidgets);
     expect(find.text('Depth: Deep'), findsWidgets);
-    expect(find.textContaining('Quantum Computing Report'), findsOneWidget);
+    expect(find.textContaining('QUANTUM COMPUTING REPORT'), findsOneWidget);
   });
 
   testWidgets('Layout renders without RenderFlex overflow at widths 360, 768, and 1280 in light and dark mode', (WidgetTester tester) async {
@@ -189,7 +189,7 @@ void main() {
         expect(tester.takeException(), isNull,
             reason: 'RenderFlex overflow occurred on landing screen at width $width in $mode');
 
-        final openAppFinder = find.widgetWithText(FilledButton, 'Open app');
+        final openAppFinder = find.widgetWithText(FilledButton, 'Get started');
         if (openAppFinder.evaluate().isNotEmpty) {
           await tester.tap(openAppFinder.first);
           await tester.pumpAndSettle();

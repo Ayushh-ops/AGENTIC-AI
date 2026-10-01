@@ -69,6 +69,29 @@ class _HomeScreenState extends State<HomeScreen>
     return fullReport.trim();
   }
 
+  /// Strips the first markdown heading line if its text closely matches [topic].
+  /// Handles patterns like "# Research Report: <topic>" or "# <topic>".
+  String _stripLeadingTitleHeading(String markdown, String topic) {
+    final trimmed = markdown.trimLeft();
+    if (!trimmed.startsWith('#')) return markdown;
+
+    final firstNewline = trimmed.indexOf('\n');
+    final firstLine = firstNewline == -1 ? trimmed : trimmed.substring(0, firstNewline);
+    final headingText = firstLine.replaceFirst(RegExp(r'^#+\s*'), '').trim();
+
+    // Match exact topic or "Research Report: <topic>" variants
+    final topicLower = topic.trim().toLowerCase();
+    final headingLower = headingText.toLowerCase();
+    final isRepeat = headingLower == topicLower ||
+        headingLower == 'research report: $topicLower' ||
+        headingLower == 'research report - $topicLower' ||
+        headingLower.endsWith(': $topicLower');
+
+    if (!isRepeat) return markdown;
+
+    return firstNewline == -1 ? '' : trimmed.substring(firstNewline + 1).trimLeft();
+  }
+
   Future<void> _launchUrlString(String urlStr) async {
     final trimmed = urlStr.trim();
     final uri = Uri.tryParse(trimmed);
@@ -811,7 +834,7 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
               ),
               child: Text(
-                'Open app',
+                'Get started',
                 style: AppTheme.bodyFont(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
@@ -835,8 +858,6 @@ class _HomeScreenState extends State<HomeScreen>
     final ink = isDark ? AppTheme.darkInk : AppTheme.lightInk;
     final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
     final at = isDark ? AppTheme.darkAt : AppTheme.lightAt;
-    final acc = isDark ? AppTheme.darkAcc : AppTheme.lightAcc;
-    final onAcc = isDark ? AppTheme.darkOnAcc : AppTheme.lightOnAcc;
 
     final double topPad = (screenHeight * 0.11).clamp(56.0, 120.0);
     final double h1Size = (screenWidth * 0.084).clamp(46.0, 104.0);
@@ -921,96 +942,61 @@ class _HomeScreenState extends State<HomeScreen>
           ),
           const SizedBox(height: 36),
 
-          // Ask box
-          Container(
+          // Dropdowns row (Type + Depth) above the box
+          ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 760),
-            decoration: BoxDecoration(
-              color: surface,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: line, width: 1.0),
-              boxShadow: [isDark ? AppTheme.darkShadow : AppTheme.lightShadow],
-            ),
-            padding: const EdgeInsets.all(10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+            child: Row(
               children: [
-                // Input row
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _topicController,
-                        enabled: !_isLoading,
-                        style: AppTheme.bodyFont(fontSize: 18, color: ink),
-                        textInputAction: TextInputAction.search,
-                        decoration: InputDecoration(
-                          hintText: 'Ask or enter a research topic',
-                          hintStyle: AppTheme.bodyFont(fontSize: 18, color: mute),
-                          border: InputBorder.none,
-                          isDense: true,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                        ),
-                        onChanged: (_) => setState(() {}),
-                        onSubmitted: (_) {
-                          if (canSubmit) {
-                            setState(() => _showLanding = false);
-                            _executeAsk();
-                          }
-                        },
-                      ),
-                    ),
-                    if (_topicController.text.isNotEmpty)
-                      IconButton(
-                        icon: Icon(Icons.clear, size: 16, color: mute),
-                        onPressed: () {
-                          _topicController.clear();
-                          setState(() {});
-                        },
-                      ),
-                    const SizedBox(width: 8),
-                    FilledButton(
-                      onPressed: canSubmit
-                          ? () {
-                              setState(() => _showLanding = false);
-                              _executeAsk();
-                            }
-                          : null,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: acc,
-                        foregroundColor: onAcc,
-                        disabledBackgroundColor: line,
-                        disabledForegroundColor: mute,
-                        elevation: 0,
-                        padding: const EdgeInsets.symmetric(horizontal: 22),
-                        minimumSize: const Size(0, 44),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-                        ),
-                      ),
-                      child: Text(
-                        'Research',
-                        style: AppTheme.bodyFont(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
+                _buildLandingDropdown(
+                  value: _selectedType,
+                  items: const ['general', 'news', 'academic'],
+                  labels: const ['General', 'News', 'Academic'],
+                  isDark: isDark,
+                  onChanged: (v) {
+                    if (v != null) {
+                      setState(() => _selectedType = v);
+                      _saveTypePreference(v);
+                    }
+                  },
                 ),
-                // Chips row
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 6, 8, 4),
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _buildSegmentedTypeSelector(isDark),
-                      _buildSegmentedDepthSelector(isDark),
-                    ],
-                  ),
+                const SizedBox(width: 12),
+                _buildLandingDropdown(
+                  value: _selectedDepth,
+                  items: const ['quick', 'standard', 'deep'],
+                  labels: const ['Quick', 'Standard', 'Deep'],
+                  isDark: isDark,
+                  onChanged: (v) {
+                    if (v != null) {
+                      setState(() => _selectedDepth = v);
+                      _saveDepthPreference(v);
+                    }
+                  },
                 ),
               ],
             ),
+          ),
+          const SizedBox(height: 10),
+
+          // Search box + Research button row
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 760),
+            child: screenWidth >= 700
+                ? Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(child: _buildLandingSearchBox(isDark: isDark, canSubmit: canSubmit)),
+                      const SizedBox(width: 12),
+                      _buildLandingResearchButton(isDark: isDark, canSubmit: canSubmit, fullWidth: false),
+                    ],
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _buildLandingSearchBox(isDark: isDark, canSubmit: canSubmit),
+                      const SizedBox(height: 10),
+                      _buildLandingResearchButton(isDark: isDark, canSubmit: canSubmit, fullWidth: true),
+                    ],
+                  ),
           ),
           const SizedBox(height: 18),
 
@@ -1039,6 +1025,151 @@ class _HomeScreenState extends State<HomeScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildLandingDropdown({
+    required String value,
+    required List<String> items,
+    required List<String> labels,
+    required bool isDark,
+    required ValueChanged<String?> onChanged,
+  }) {
+    final surface = isDark ? AppTheme.darkSurface : AppTheme.lightSurface;
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+    final ink = isDark ? AppTheme.darkInk : AppTheme.lightInk;
+    final acc = isDark ? AppTheme.darkAcc : AppTheme.lightAcc;
+
+    return Container(
+      height: 40,
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: line, width: 1.0),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: value,
+          isDense: true,
+          icon: Icon(Icons.keyboard_arrow_down, size: 16, color: ink),
+          style: AppTheme.bodyFont(fontSize: 14, color: ink),
+          dropdownColor: surface,
+          borderRadius: BorderRadius.circular(12),
+          onChanged: _isLoading ? null : onChanged,
+          items: List.generate(items.length, (i) {
+            final isSelected = items[i] == value;
+            return DropdownMenuItem<String>(
+              value: items[i],
+              child: Text(
+                labels[i],
+                style: AppTheme.bodyFont(
+                  fontSize: 14,
+                  color: isSelected ? acc : ink,
+                ),
+              ),
+            );
+          }),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLandingSearchBox({required bool isDark, required bool canSubmit}) {
+    final surface = isDark ? AppTheme.darkSurface : AppTheme.lightSurface;
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+    final ink = isDark ? AppTheme.darkInk : AppTheme.lightInk;
+    final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
+
+    return Container(
+      height: 52,
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: line, width: 1.0),
+        boxShadow: [isDark ? AppTheme.darkShadow : AppTheme.lightShadow],
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _topicController,
+              enabled: !_isLoading,
+              style: AppTheme.bodyFont(fontSize: 18, color: ink),
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                hintText: 'Ask or enter a research topic',
+                hintStyle: AppTheme.bodyFont(fontSize: 18, color: mute),
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+              onChanged: (_) => setState(() {}),
+              onSubmitted: (_) {
+                if (canSubmit) {
+                  setState(() => _showLanding = false);
+                  _executeAsk();
+                }
+              },
+            ),
+          ),
+          if (_topicController.text.isNotEmpty)
+            IconButton(
+              icon: Icon(Icons.clear, size: 16, color: mute),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+              onPressed: _isLoading
+                  ? null
+                  : () {
+                      _topicController.clear();
+                      setState(() {});
+                    },
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLandingResearchButton({
+    required bool isDark,
+    required bool canSubmit,
+    required bool fullWidth,
+  }) {
+    final acc = isDark ? AppTheme.darkAcc : AppTheme.lightAcc;
+    final onAcc = isDark ? AppTheme.darkOnAcc : AppTheme.lightOnAcc;
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+    final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
+
+    return SizedBox(
+      height: 52,
+      width: fullWidth ? double.infinity : null,
+      child: FilledButton(
+        onPressed: canSubmit
+            ? () {
+                setState(() => _showLanding = false);
+                _executeAsk();
+              }
+            : null,
+        style: FilledButton.styleFrom(
+          backgroundColor: acc,
+          foregroundColor: onAcc,
+          disabledBackgroundColor: line,
+          disabledForegroundColor: mute,
+          elevation: 0,
+          padding: const EdgeInsets.symmetric(horizontal: 28),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+          ),
+          textStyle: AppTheme.bodyFont(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        child: const Text('Research'),
       ),
     );
   }
@@ -1571,7 +1702,7 @@ class _HomeScreenState extends State<HomeScreen>
               ),
             ),
             child: Text(
-              'Open app',
+              'Get started',
               style: AppTheme.bodyFont(
                 fontSize: 17,
                 fontWeight: FontWeight.w600,
@@ -1682,7 +1813,7 @@ class _HomeScreenState extends State<HomeScreen>
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
               child: Row(
                 children: [
-                  Expanded(child: _buildBrandWordmark(isDark)),
+                  Expanded(child: _buildBrandWordmark(isDark, twoLines: true)),
                   if (isDrawer)
                     _buildIconButton(
                       icon: Icons.chevron_left,
@@ -2027,7 +2158,7 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildBrandWordmark(bool isDark) {
+  Widget _buildBrandWordmark(bool isDark, {bool twoLines = false}) {
     final screenWidth = MediaQuery.of(context).size.width;
     final bool isWideText = screenWidth >= 700;
     final acc = isDark ? AppTheme.darkAcc : AppTheme.lightAcc;
@@ -2077,19 +2208,33 @@ class _HomeScreenState extends State<HomeScreen>
               ),
             ),
             const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                isWideText ? 'Multi Agent Research Assistant' : 'Multi Agent',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                softWrap: false,
-                style: AppTheme.displayFont(
-                  fontSize: 22,
-                  color: ink,
-                  height: 1.0,
+            if (twoLines)
+              // Two-line variant for sidebar: wrap allowed, no ellipsis
+              Flexible(
+                child: Text(
+                  'Multi Agent\nResearch Assistant',
+                  softWrap: true,
+                  style: AppTheme.displayFont(
+                    fontSize: 20,
+                    color: ink,
+                    height: 1.2,
+                  ),
+                ),
+              )
+            else
+              Flexible(
+                child: Text(
+                  isWideText ? 'Multi Agent Research Assistant' : 'Multi Agent',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  softWrap: false,
+                  style: AppTheme.displayFont(
+                    fontSize: 22,
+                    color: ink,
+                    height: 1.0,
+                  ),
                 ),
               ),
-            ),
           ],
         ),
       ),
@@ -2660,7 +2805,18 @@ class _HomeScreenState extends State<HomeScreen>
     final unsupportedCount =
         res.claims.where((c) => c.status.toLowerCase() == 'unsupported').length;
 
-    final cleanedMarkdown = _cleanReportMarkdown(res.reportMarkdown);
+    // Strip the first heading if it only repeats the report title
+    final cleanedMarkdown = _stripLeadingTitleHeading(
+      _cleanReportMarkdown(res.reportMarkdown),
+      res.topic,
+    );
+
+    // Uppercase h1-h3 heading text so the muted label style looks like a section header
+    final uppercasedMarkdown = cleanedMarkdown.split('\n').map((l) {
+      final m = RegExp(r'^(#{1,3}) (.+)$').firstMatch(l);
+      if (m != null) return '${m.group(1)} ${m.group(2)!.toUpperCase()}';
+      return l;
+    }).join('\n');
 
     // Extract bullet points for Key findings (.fl) if present in report
     final lines = cleanedMarkdown.split('\n');
@@ -2737,7 +2893,7 @@ class _HomeScreenState extends State<HomeScreen>
 
         // 4. Summary / Report Body (.sum + markdown)
         MarkdownBody(
-          data: cleanedMarkdown,
+          data: uppercasedMarkdown,
           selectable: true,
           onTapLink: (text, href, title) {
             if (href != null && href.isNotEmpty) {
@@ -2750,21 +2906,31 @@ class _HomeScreenState extends State<HomeScreen>
               height: 1.6,
               color: ink,
             ),
-            h1: AppTheme.displayFont(
-              fontSize: 28,
-              color: ink,
-              height: 1.1,
+            // Headings: Geist 600, 13px, UPPERCASE, muted color — not Instrument Serif/bold
+            h1: AppTheme.bodyFont(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.08,
+              color: mute,
+              height: 1.2,
             ),
-            h2: AppTheme.displayFont(
-              fontSize: 24,
-              color: ink,
-              height: 1.1,
+            h1Padding: const EdgeInsets.only(top: 20, bottom: 8),
+            h2: AppTheme.bodyFont(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.08,
+              color: mute,
+              height: 1.2,
             ),
-            h3: AppTheme.displayFont(
-              fontSize: 20,
-              color: ink,
-              height: 1.15,
+            h2Padding: const EdgeInsets.only(top: 20, bottom: 8),
+            h3: AppTheme.bodyFont(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.08,
+              color: mute,
+              height: 1.2,
             ),
+            h3Padding: const EdgeInsets.only(top: 20, bottom: 8),
             h4: AppTheme.monoFont(
               fontSize: 13,
               fontWeight: FontWeight.w600,
