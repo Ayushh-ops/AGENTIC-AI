@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../api/api_service.dart';
+import '../main.dart';
+import '../models/history_item.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -15,9 +17,8 @@ class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _topicController = TextEditingController();
   final ApiService _apiService = ApiService();
 
-  bool _isCheckingHealth = false;
-  bool? _isBackendConnected;
-  String _healthStatusMessage = '';
+  bool _isSidebarOpen = true;
+  List<HistoryItem> _history = [];
 
   bool _isLoading = false;
   String _loadingText = 'Thinking...';
@@ -90,7 +91,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _checkHealth();
+    _loadHistory();
   }
 
   @override
@@ -100,32 +101,95 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  Future<void> _checkHealth() async {
-    setState(() {
-      _isCheckingHealth = true;
-    });
-
-    final result = await _apiService.checkHealth();
-
+  Future<void> _loadHistory() async {
+    final items = await HistoryStorage.loadHistory();
     if (mounted) {
       setState(() {
-        _isCheckingHealth = false;
-        if (result['success'] == true) {
-          _isBackendConnected = true;
-          _healthStatusMessage = 'Connected (${result['service']})';
-        } else {
-          _isBackendConnected = false;
-          _healthStatusMessage = result['error']?.toString() ?? 'Offline';
-        }
+        _history = items;
       });
     }
+  }
+
+  void _saveToHistory(String message, AskResponse res) {
+    final newItem = HistoryItem(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      message: message,
+      mode: res.mode,
+      reply: res.reply,
+      research: res.research,
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+    );
+
+    setState(() {
+      _history.removeWhere(
+          (i) => i.message.trim().toLowerCase() == message.trim().toLowerCase());
+      _history.insert(0, newItem);
+      if (_history.length > HistoryStorage.maxHistoryItems) {
+        _history = _history.sublist(0, HistoryStorage.maxHistoryItems);
+      }
+    });
+
+    HistoryStorage.saveHistory(_history);
+  }
+
+  void _deleteHistoryItem(String id) {
+    setState(() {
+      _history.removeWhere((i) => i.id == id);
+    });
+    HistoryStorage.saveHistory(_history);
+  }
+
+  void _clearAllHistory() {
+    setState(() {
+      _history.clear();
+    });
+    HistoryStorage.saveHistory(_history);
+  }
+
+  void _selectHistoryItem(HistoryItem item) {
+    setState(() {
+      _topicController.text = item.message;
+      _errorMessage = null;
+      _isLoading = false;
+      _askResponse = AskResponse(
+        mode: item.mode,
+        reply: item.reply,
+        research: item.research,
+        llmCalls: null,
+        searchCalls: null,
+      );
+    });
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  void _startNewResearch() {
+    setState(() {
+      _topicController.clear();
+      _errorMessage = null;
+      _askResponse = null;
+      _isLoading = false;
+    });
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  void _toggleTheme() {
+    final current = themeModeNotifier.value;
+    final Brightness platformBrightness = MediaQuery.platformBrightnessOf(context);
+    final isDark = current == ThemeMode.dark ||
+        (current == ThemeMode.system && platformBrightness == Brightness.dark);
+    final newMode = isDark ? ThemeMode.light : ThemeMode.dark;
+    themeModeNotifier.value = newMode;
+    saveThemeMode(newMode);
   }
 
   Future<void> _executeAsk() async {
     final message = _topicController.text.trim();
     if (message.isEmpty || _isLoading) return;
 
-    // Dismiss keyboard
     FocusScope.of(context).unfocus();
 
     _loadingTimer?.cancel();
@@ -136,7 +200,6 @@ class _HomeScreenState extends State<HomeScreen> {
       _askResponse = null;
     });
 
-    // For the first second show "Thinking...", then transition to detailed status
     _loadingTimer = Timer(const Duration(seconds: 1), () {
       if (mounted && _isLoading) {
         setState(() {
@@ -153,6 +216,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _askResponse = res;
           _isLoading = false;
         });
+        _saveToHistory(message, res);
       }
     } on ApiException catch (e) {
       _loadingTimer?.cancel();
@@ -173,149 +237,432 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final bool canSubmit =
-        !_isLoading && _topicController.text.trim().isNotEmpty;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Multi-Agent Research Assistant'),
-        centerTitle: true,
-      ),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 860),
-          child: ListView(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+  void _showAboutDialog(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Row(
             children: [
-              _buildHealthStatusCard(),
-              const SizedBox(height: 16),
-              _buildInputCard(canSubmit),
-              const SizedBox(height: 20),
-              if (_isLoading) _buildLoadingIndicator(),
-              if (_errorMessage != null && !_isLoading) _buildErrorCard(),
-              if (_askResponse != null && !_isLoading) ...[
-                if (_askResponse!.mode == 'chat')
-                  _buildChatResponseCard(_askResponse!)
-                else if (_askResponse!.mode == 'research' &&
-                    _askResponse!.research != null)
-                  _buildResultSection(_askResponse!.research!),
-                _buildCallsFooter(_askResponse!),
-              ],
+              Icon(Icons.auto_awesome, color: colorScheme.primary, size: 22),
+              const SizedBox(width: 10),
+              const Text('About Research Assistant'),
             ],
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHealthStatusCard() {
-    Color bg;
-    Color border;
-    IconData icon;
-    Color iconColor;
-
-    if (_isCheckingHealth) {
-      bg = Colors.blue.shade50;
-      border = Colors.blue.shade200;
-      icon = Icons.sync;
-      iconColor = Colors.blue.shade700;
-    } else if (_isBackendConnected == true) {
-      bg = const Color(0xFFF0FDF4);
-      border = const Color(0xFFBBF7D0);
-      icon = Icons.check_circle;
-      iconColor = const Color(0xFF16A34A);
-    } else {
-      bg = const Color(0xFFFEF2F2);
-      border = const Color(0xFFFECACA);
-      icon = Icons.warning_amber_rounded;
-      iconColor = const Color(0xFFDC2626);
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: border),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 20, color: iconColor),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              _isCheckingHealth
-                  ? 'Verifying backend connection at ${_apiService.baseUrl}...'
-                  : (_isBackendConnected == true
-                      ? 'Backend Online: $_healthStatusMessage (${_apiService.baseUrl})'
-                      : 'Backend Unreachable: $_healthStatusMessage (${_apiService.baseUrl})'),
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: iconColor,
+          content: SizedBox(
+            width: 520,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'What it does',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: colorScheme.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Executes live web search, cross-checks claims across independent sources, and synthesizes cited reports with verification status.',
+                    style: TextStyle(fontSize: 13),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'How it works',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: colorScheme.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Researcher gathers live sources -> Fact-Checker extracts and audits claims against evidence -> Synthesizer writes the grounded report.',
+                    style: TextStyle(fontSize: 13),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Claim verification statuses',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: colorScheme.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    '• Supported: Corroborated by 2 or more distinct domains.\n'
+                    '• Single source: Found in only 1 source domain.\n'
+                    '• Unsupported: Uncorroborated or contradicted by evidence.',
+                    style: TextStyle(fontSize: 13),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Limitations',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: colorScheme.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'AI models may misinterpret subtle nuances or encounter biased sources. Synthesized reports provide an evidence base and should always be read critically.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontStyle: FontStyle.italic,
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
-          if (!_isCheckingHealth && _isBackendConnected != true)
+          actions: [
             TextButton(
-              onPressed: _checkHealth,
-              child: const Text('Retry'),
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close'),
             ),
-        ],
+          ],
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isWide = MediaQuery.of(context).size.width >= 800;
+    final bool canSubmit =
+        !_isLoading && _topicController.text.trim().isNotEmpty;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final appBar = AppBar(
+      leading: Builder(
+        builder: (ctx) => IconButton(
+          icon: const Icon(Icons.menu),
+          tooltip: 'Toggle sidebar',
+          onPressed: () {
+            if (isWide) {
+              setState(() {
+                _isSidebarOpen = !_isSidebarOpen;
+              });
+            } else {
+              Scaffold.of(ctx).openDrawer();
+            }
+          },
+        ),
+      ),
+      title: const Text('Multi-Agent Research Assistant'),
+      centerTitle: false,
+      actions: [
+        IconButton(
+          icon: Icon(
+            isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+          ),
+          tooltip: isDark ? 'Switch to light mode' : 'Switch to dark mode',
+          onPressed: _toggleTheme,
+        ),
+      ],
+    );
+
+    return Scaffold(
+      appBar: appBar,
+      drawer: isWide ? null : Drawer(child: _buildSidebarContent(isDrawer: true)),
+      body: isWide
+          ? Row(
+              children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: _isSidebarOpen ? 280 : 0,
+                  child: _isSidebarOpen
+                      ? _buildSidebarContent(isDrawer: false)
+                      : const SizedBox.shrink(),
+                ),
+                if (_isSidebarOpen)
+                  VerticalDivider(
+                    width: 1,
+                    thickness: 1,
+                    color: Theme.of(context).dividerColor.withValues(alpha: 0.3),
+                  ),
+                Expanded(
+                  child: _buildMainContent(canSubmit: canSubmit, isWide: true),
+                ),
+              ],
+            )
+          : _buildMainContent(canSubmit: canSubmit, isWide: false),
+    );
+  }
+
+  Widget _buildSidebarContent({required bool isDrawer}) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Material(
+      color: colorScheme.surfaceContainerLow,
+      child: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Top: Prominent "New research" button
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+              child: FilledButton.tonalIcon(
+                onPressed: _startNewResearch,
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('New research'),
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ),
+
+            // Recent Header with Clear all action
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Row(
+                children: [
+                  Text(
+                    'Recent',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: colorScheme.onSurfaceVariant,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  const Spacer(),
+                  if (_history.isNotEmpty)
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                      ),
+                      onPressed: _clearAllHistory,
+                      child: const Text('Clear all', style: TextStyle(fontSize: 12)),
+                    ),
+                ],
+              ),
+            ),
+
+            // Recent List (scrollable)
+            Expanded(
+              child: _history.isEmpty
+                  ? Center(
+                      child: Text(
+                        'No history yet',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: _history.length,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      itemBuilder: (context, index) {
+                        final item = _history[index];
+                        final isChat = item.mode == 'chat';
+
+                        return ListTile(
+                          dense: true,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          leading: Icon(
+                            isChat
+                                ? Icons.chat_bubble_outline
+                                : Icons.auto_awesome,
+                            size: 16,
+                            color: colorScheme.primary,
+                          ),
+                          title: Text(
+                            item.message,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 13),
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.close, size: 14),
+                            tooltip: 'Delete',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: () => _deleteHistoryItem(item.id),
+                          ),
+                          onTap: () => _selectHistoryItem(item),
+                        );
+                      },
+                    ),
+            ),
+
+            Divider(
+              height: 1,
+              thickness: 1,
+              color: Theme.of(context).dividerColor.withValues(alpha: 0.3),
+            ),
+
+            // Bottom: About entry
+            ListTile(
+              dense: true,
+              leading: const Icon(Icons.info_outline, size: 20),
+              title: const Text('About', style: TextStyle(fontSize: 14)),
+              onTap: () => _showAboutDialog(context),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildInputCard(bool canSubmit) {
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: Theme.of(context).dividerColor.withValues(alpha: 0.3),
+  Widget _buildMainContent({required bool canSubmit, required bool isWide}) {
+    final hasResultOrActivity =
+        _askResponse != null || _isLoading || _errorMessage != null;
+
+    if (!hasResultOrActivity) {
+      // Centered Hero Home View
+      return _buildHeroView(canSubmit);
+    }
+
+    // Result or Activity View with Compact Search Bar at Top
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 860),
+        child: ListView(
+          padding: EdgeInsets.symmetric(
+            horizontal: isWide ? 24 : 16,
+            vertical: 16,
+          ),
+          children: [
+            _buildSearchBar(canSubmit: canSubmit, isHero: false),
+            const SizedBox(height: 20),
+            if (_isLoading) _buildLoadingIndicator(),
+            if (_errorMessage != null && !_isLoading) _buildErrorCard(),
+            if (_askResponse != null && !_isLoading) ...[
+              if (_askResponse!.mode == 'chat')
+                _buildChatResponseCard(_askResponse!)
+              else if (_askResponse!.mode == 'research' &&
+                  _askResponse!.research != null)
+                _buildResultSection(_askResponse!.research!),
+            ],
+          ],
         ),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
+    );
+  }
+
+  Widget _buildHeroView(bool canSubmit) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            TextField(
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: colorScheme.primaryContainer.withValues(alpha: 0.3),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.auto_awesome,
+                size: 44,
+                color: colorScheme.primary,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Multi-Agent Research Assistant',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Autonomous research with live web verification & cited reports',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 15,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 32),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 720),
+              child: _buildSearchBar(canSubmit: canSubmit, isHero: true),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSearchBar({required bool canSubmit, required bool isHero}) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+        ),
+      ),
+      padding: EdgeInsets.symmetric(
+        horizontal: isHero ? 14 : 10,
+        vertical: isHero ? 4 : 2,
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.search,
+            color: colorScheme.onSurfaceVariant,
+            size: isHero ? 22 : 20,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: TextField(
               controller: _topicController,
               enabled: !_isLoading,
               textInputAction: TextInputAction.search,
-              decoration: InputDecoration(
-                labelText: 'Ask or enter a research topic',
-                hintText: 'e.g., Hi, or explore Quantum Computing in 2026',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: _topicController.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear, size: 18),
-                        onPressed: _isLoading
-                            ? null
-                            : () {
-                                _topicController.clear();
-                                setState(() {});
-                              },
-                      )
-                    : null,
-                border: const OutlineInputBorder(),
+              decoration: const InputDecoration(
+                hintText: 'Ask or enter a research topic',
+                border: InputBorder.none,
+                isDense: true,
               ),
               onChanged: (_) => setState(() {}),
               onSubmitted: (_) {
                 if (canSubmit) _executeAsk();
               },
             ),
-            const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: canSubmit ? _executeAsk : null,
-              icon: const Icon(Icons.auto_awesome, size: 18),
-              label: const Text('Research', style: TextStyle(fontSize: 16)),
+          ),
+          if (_topicController.text.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.clear, size: 18),
+              onPressed: _isLoading
+                  ? null
+                  : () {
+                      _topicController.clear();
+                      setState(() {});
+                    },
             ),
-          ],
-        ),
+          const SizedBox(width: 4),
+          FilledButton.icon(
+            onPressed: canSubmit ? _executeAsk : null,
+            icon: const Icon(Icons.auto_awesome, size: 16),
+            label: const Text('Research'),
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -359,37 +706,39 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildErrorCard() {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Card(
       elevation: 0,
-      color: const Color(0xFFFEF2F2),
+      color: colorScheme.errorContainer.withValues(alpha: 0.3),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: const BorderSide(color: Color(0xFFFCA5A5)),
+        side: BorderSide(color: colorScheme.error.withValues(alpha: 0.4)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Icon(Icons.error_outline, color: Color(0xFFDC2626), size: 24),
+            Icon(Icons.error_outline, color: colorScheme.error, size: 24),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'Request Failed',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFF991B1B),
+                      color: colorScheme.error,
                       fontSize: 15,
                     ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     _errorMessage ?? 'Unknown error occurred.',
-                    style: const TextStyle(
-                      color: Color(0xFF7F1D1D),
+                    style: TextStyle(
+                      color: colorScheme.onErrorContainer,
                       fontSize: 13,
                     ),
                   ),
@@ -403,6 +752,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildChatResponseCard(AskResponse res) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Card(
       elevation: 0,
       shape: RoundedRectangleBorder(
@@ -421,7 +772,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 Icon(
                   Icons.chat_bubble_outline,
                   size: 18,
-                  color: Theme.of(context).colorScheme.primary,
+                  color: colorScheme.primary,
                 ),
                 const SizedBox(width: 8),
                 Text(
@@ -429,7 +780,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.primary,
+                    color: colorScheme.primary,
                   ),
                 ),
               ],
@@ -440,24 +791,6 @@ class _HomeScreenState extends State<HomeScreen> {
               style: const TextStyle(fontSize: 15, height: 1.5),
             ),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCallsFooter(AskResponse res) {
-    final llm = res.llmCalls ?? 0;
-    final search = res.searchCalls ?? 0;
-    return Padding(
-      padding: const EdgeInsets.only(top: 10, bottom: 20),
-      child: Center(
-        child: Text(
-          'LLM calls: $llm - Searches: $search',
-          style: TextStyle(
-            fontSize: 12,
-            color: Theme.of(context).colorScheme.outline,
-            fontWeight: FontWeight.w500,
-          ),
         ),
       ),
     );
@@ -477,7 +810,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Report Markdown Card (only executive summary / key findings, audit & sources are in interactive panels below)
+        // Report Markdown Card
         Card(
           elevation: 0,
           shape: RoundedRectangleBorder(
