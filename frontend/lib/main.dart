@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/home_screen.dart';
+import 'theme/app_theme.dart';
 
 /// Global notifier for toggling between system, light, and dark themes.
 final ValueNotifier<ThemeMode> themeModeNotifier =
@@ -46,20 +47,8 @@ class ResearchAssistantApp extends StatelessWidget {
         return MaterialApp(
           title: 'Agentic Research Assistant',
           debugShowCheckedModeBanner: false,
-          theme: ThemeData(
-            useMaterial3: true,
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: const Color(0xFF2563EB),
-              brightness: Brightness.light,
-            ),
-          ),
-          darkTheme: ThemeData(
-            useMaterial3: true,
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: const Color(0xFF3B82F6),
-              brightness: Brightness.dark,
-            ),
-          ),
+          theme: AppTheme.lightTheme,
+          darkTheme: AppTheme.darkTheme,
           themeMode: currentMode,
           home: const HomeScreen(),
         );

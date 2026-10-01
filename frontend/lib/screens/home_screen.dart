@@ -6,6 +6,9 @@ import 'package:url_launcher/url_launcher.dart';
 import '../api/api_service.dart';
 import '../main.dart';
 import '../models/history_item.dart';
+import '../theme/app_theme.dart';
+import '../widgets/dynamic_background.dart';
+import '../widgets/interactive_controls.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -20,6 +23,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   bool _isSidebarOpen = true;
   List<HistoryItem> _history = [];
+  String? _selectedHistoryItemId;
 
   String _selectedType = 'general'; // 'general' | 'news' | 'academic'
   String _selectedDepth = 'standard'; // 'quick' | 'standard' | 'deep'
@@ -157,8 +161,9 @@ class _HomeScreenState extends State<HomeScreen> {
     String? researchType,
     String? depth,
   }) {
+    final newId = DateTime.now().millisecondsSinceEpoch.toString();
     final newItem = HistoryItem(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      id: newId,
       message: message,
       mode: res.mode,
       reply: res.reply,
@@ -169,6 +174,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     setState(() {
+      _selectedHistoryItemId = newId;
       _history.removeWhere(
           (i) => i.message.trim().toLowerCase() == message.trim().toLowerCase());
       _history.insert(0, newItem);
@@ -182,6 +188,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _deleteHistoryItem(String id) {
     setState(() {
+      if (_selectedHistoryItemId == id) {
+        _selectedHistoryItemId = null;
+      }
       _history.removeWhere((i) => i.id == id);
     });
     HistoryStorage.saveHistory(_history);
@@ -189,13 +198,48 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _clearAllHistory() {
     setState(() {
+      _selectedHistoryItemId = null;
       _history.clear();
     });
     HistoryStorage.saveHistory(_history);
   }
 
+  void _confirmClearAllHistory() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          'Clear all history?',
+          style: AppTheme.displayFont(fontSize: 18, fontWeight: FontWeight.bold),
+        ),
+        content: const Text(
+          'This will permanently delete all saved research queries and summaries.',
+          style: TextStyle(fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              _clearAllHistory();
+            },
+            child: const Text('Clear all'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _selectHistoryItem(HistoryItem item) {
     setState(() {
+      _selectedHistoryItemId = item.id;
       _topicController.text = item.message;
       _errorMessage = null;
       _isLoading = false;
@@ -216,6 +260,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _startNewResearch() {
     setState(() {
+      _selectedHistoryItemId = null;
       _topicController.clear();
       _errorMessage = null;
       _askResponse = null;
@@ -230,12 +275,19 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _toggleTheme() {
     final current = themeModeNotifier.value;
-    final Brightness platformBrightness = MediaQuery.platformBrightnessOf(context);
+    final Brightness platformBrightness =
+        MediaQuery.platformBrightnessOf(context);
     final isDark = current == ThemeMode.dark ||
         (current == ThemeMode.system && platformBrightness == Brightness.dark);
     final newMode = isDark ? ThemeMode.light : ThemeMode.dark;
     themeModeNotifier.value = newMode;
     saveThemeMode(newMode);
+  }
+
+  void _onSelectExamplePrompt(String prompt) {
+    _topicController.text = prompt;
+    setState(() {});
+    _executeAsk();
   }
 
   Future<void> _executeAsk() async {
@@ -305,19 +357,37 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _showAboutDialog(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+
     showDialog(
       context: context,
-      builder: (context) {
+      builder: (BuildContext ctx) {
         return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+          ),
           title: Row(
             children: [
-              Icon(Icons.auto_awesome, color: colorScheme.primary, size: 22),
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  gradient: AppTheme.primaryGradient,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.hub_outlined, color: Colors.white, size: 18),
+              ),
               const SizedBox(width: 10),
-              const Text('About Research Assistant'),
+              Text(
+                'About Multi-Agent Assistant',
+                style: AppTheme.displayFont(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ],
           ),
-          content: SizedBox(
-            width: 520,
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 540),
             child: SingleChildScrollView(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -334,9 +404,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 4),
                   const Text(
                     'Executes live web search, cross-checks claims across independent sources, and synthesizes cited reports with verification status.',
-                    style: TextStyle(fontSize: 13),
+                    style: TextStyle(fontSize: 13, height: 1.4),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 16),
                   Text(
                     'The 3 Autonomous Agents',
                     style: TextStyle(
@@ -345,14 +415,34 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: colorScheme.primary,
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    '• Researcher: Deconstructs the topic and gathers relevant live web sources via targeted search queries.\n'
-                    '• Fact-Checker: Audits sources, extracts factual claims, and evaluates multi-source corroboration with strict quote validation.\n'
-                    '• Synthesizer: Compiles verified claims and cited sources into a transparent, structured report.',
-                    style: TextStyle(fontSize: 13),
+                  const SizedBox(height: 8),
+                  _buildAgentCard(
+                    name: 'Researcher:',
+                    role:
+                        'Deconstructs the topic and gathers relevant live web sources via targeted search queries.',
+                    icon: Icons.travel_explore,
+                    color: colorScheme.primary,
+                    colorScheme: colorScheme,
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 8),
+                  _buildAgentCard(
+                    name: 'Fact-Checker:',
+                    role:
+                        'Audits sources, extracts factual claims, and evaluates multi-source corroboration with strict quote validation.',
+                    icon: Icons.fact_check_outlined,
+                    color: colorScheme.secondary,
+                    colorScheme: colorScheme,
+                  ),
+                  const SizedBox(height: 8),
+                  _buildAgentCard(
+                    name: 'Synthesizer:',
+                    role:
+                        'Compiles verified claims and cited sources into a transparent, structured report.',
+                    icon: Icons.auto_awesome,
+                    color: colorScheme.tertiary,
+                    colorScheme: colorScheme,
+                  ),
+                  const SizedBox(height: 16),
                   Text(
                     'Research Depth',
                     style: TextStyle(
@@ -361,12 +451,22 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: colorScheme.primary,
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Quick provides a fast single-search summary, Standard balances speed and corroboration, while Deep checks more sources but takes longer and uses more API calls.',
-                    style: TextStyle(fontSize: 13),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                      border: Border.all(
+                        color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+                      ),
+                    ),
+                    child: const Text(
+                      'Quick provides a fast single-search summary, Standard balances speed and corroboration, while Deep checks more sources but takes longer and uses more API calls.',
+                      style: TextStyle(fontSize: 13, height: 1.4),
+                    ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 16),
                   Text(
                     'Claim verification statuses',
                     style: TextStyle(
@@ -375,14 +475,17 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: colorScheme.primary,
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    '• Supported: Corroborated by 2 or more distinct domains.\n'
-                    '• Single source: Found in only 1 source domain.\n'
-                    '• Unsupported: Uncorroborated or contradicted by evidence.',
-                    style: TextStyle(fontSize: 13),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _buildStatusChip('supported'),
+                      _buildStatusChip('single_source'),
+                      _buildStatusChip('unsupported'),
+                    ],
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 16),
                   Text(
                     'Limitations',
                     style: TextStyle(
@@ -398,6 +501,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       fontSize: 12,
                       fontStyle: FontStyle.italic,
                       color: colorScheme.onSurfaceVariant,
+                      height: 1.4,
                     ),
                   ),
                 ],
@@ -413,6 +517,101 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
     );
+  }
+
+  Widget _buildAgentCard({
+    required String name,
+    required String role,
+    required IconData icon,
+    required Color color,
+    required ColorScheme colorScheme,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+        border: Border.all(
+          color: color.withValues(alpha: 0.3),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: color.withValues(alpha: 0.15),
+            ),
+            child: Icon(icon, color: color, size: 18),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                    color: color,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  role,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: colorScheme.onSurfaceVariant,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatRelativeTime(int timestamp) {
+    final now = DateTime.now();
+    final dt = DateTime.fromMillisecondsSinceEpoch(timestamp);
+    final diff = now.difference(dt);
+
+    if (diff.inSeconds < 60) {
+      return 'just now';
+    } else if (diff.inMinutes < 60) {
+      return '${diff.inMinutes}m ago';
+    } else if (diff.inHours < 24) {
+      return '${diff.inHours}h ago';
+    } else if (diff.inDays == 1) {
+      return 'yesterday';
+    } else if (diff.inDays < 7) {
+      return '${diff.inDays}d ago';
+    } else {
+      return '${dt.month}/${dt.day}';
+    }
+  }
+
+  String _getDateGroup(int timestamp) {
+    final now = DateTime.now();
+    final dt = DateTime.fromMillisecondsSinceEpoch(timestamp);
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final itemDate = DateTime(dt.year, dt.month, dt.day);
+
+    if (itemDate.isAtSameMomentAs(today)) {
+      return 'Today';
+    } else if (itemDate.isAtSameMomentAs(yesterday)) {
+      return 'Yesterday';
+    } else {
+      return 'Earlier';
+    }
   }
 
   @override
@@ -438,9 +637,20 @@ class _HomeScreenState extends State<HomeScreen> {
           },
         ),
       ),
-      title: const Text('Multi-Agent Research Assistant'),
+      title: Text(
+        'Multi-Agent Research Assistant',
+        style: AppTheme.displayFont(
+          fontSize: 17,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
       centerTitle: false,
       actions: [
+        IconButton(
+          icon: const Icon(Icons.info_outline),
+          tooltip: 'About Multi-Agent Assistant',
+          onPressed: () => _showAboutDialog(context),
+        ),
         IconButton(
           icon: Icon(
             isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
@@ -454,33 +664,38 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       appBar: appBar,
       drawer: isWide ? null : Drawer(child: _buildSidebarContent(isDrawer: true)),
-      body: isWide
-          ? Row(
-              children: [
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  width: _isSidebarOpen ? 280 : 0,
-                  child: _isSidebarOpen
-                      ? _buildSidebarContent(isDrawer: false)
-                      : const SizedBox.shrink(),
-                ),
-                if (_isSidebarOpen)
-                  VerticalDivider(
-                    width: 1,
-                    thickness: 1,
-                    color: Theme.of(context).dividerColor.withValues(alpha: 0.3),
+      body: DynamicBackground(
+        isLoading: _isLoading,
+        child: isWide
+            ? Row(
+                children: [
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeInOut,
+                    width: _isSidebarOpen ? 290 : 0,
+                    child: _isSidebarOpen
+                        ? _buildSidebarContent(isDrawer: false)
+                        : const SizedBox.shrink(),
                   ),
-                Expanded(
-                  child: _buildMainContent(canSubmit: canSubmit, isWide: true),
-                ),
-              ],
-            )
-          : _buildMainContent(canSubmit: canSubmit, isWide: false),
+                  if (_isSidebarOpen)
+                    VerticalDivider(
+                      width: 1,
+                      thickness: 1,
+                      color: Theme.of(context).dividerColor,
+                    ),
+                  Expanded(
+                    child: _buildMainContent(canSubmit: canSubmit, isWide: true),
+                  ),
+                ],
+              )
+            : _buildMainContent(canSubmit: canSubmit, isWide: false),
+      ),
     );
   }
 
   Widget _buildSidebarContent({required bool isDrawer}) {
     final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Material(
       color: colorScheme.surfaceContainerLow,
@@ -488,17 +703,54 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Top: Prominent "New research" button
+            // Header: App logo mark + short name
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-              child: FilledButton.tonalIcon(
-                onPressed: _startNewResearch,
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('New research'),
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      gradient: isDark
+                          ? AppTheme.primaryGradientDark
+                          : AppTheme.primaryGradient,
+                      borderRadius: BorderRadius.circular(8),
+                      boxShadow: [
+                        BoxShadow(
+                          color: colorScheme.primary.withValues(alpha: 0.25),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.auto_awesome,
+                      color: Colors.white,
+                      size: 18,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Research Assistant',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTheme.displayFont(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: colorScheme.onSurface,
+                      ),
+                    ),
+                  ),
+                ],
               ),
+            ),
+
+            // Top: Full-width New research button
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: NewResearchButton(onPressed: _startNewResearch),
             ),
 
             // Recent Header with Clear all action
@@ -507,12 +759,12 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Row(
                 children: [
                   Text(
-                    'Recent',
+                    'RECENT',
                     style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
                       color: colorScheme.onSurfaceVariant,
-                      letterSpacing: 0.5,
+                      letterSpacing: 0.8,
                     ),
                   ),
                   const Spacer(),
@@ -520,88 +772,127 @@ class _HomeScreenState extends State<HomeScreen> {
                     TextButton(
                       style: TextButton.styleFrom(
                         visualDensity: VisualDensity.compact,
-                        padding: EdgeInsets.zero,
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
                       ),
-                      onPressed: _clearAllHistory,
-                      child: const Text('Clear all', style: TextStyle(fontSize: 12)),
+                      onPressed: _confirmClearAllHistory,
+                      child: Text(
+                        'Clear all',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: colorScheme.error,
+                        ),
+                      ),
                     ),
                 ],
               ),
             ),
 
-            // Recent List (scrollable)
+            // Grouped Recent List (scrollable)
             Expanded(
-              child: _history.isEmpty
-                  ? Center(
-                      child: Text(
-                        'No history yet',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
-                        ),
-                      ),
-                    )
-                  : ListView.builder(
-                      itemCount: _history.length,
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      itemBuilder: (context, index) {
-                        final item = _history[index];
-                        final isChat = item.mode == 'chat';
-
-                        return ListTile(
-                          dense: true,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          leading: Icon(
-                            isChat
-                                ? Icons.chat_bubble_outline
-                                : Icons.auto_awesome,
-                            size: 16,
-                            color: colorScheme.primary,
-                          ),
-                          title: Text(
-                            item.message,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 13),
-                          ),
-                          subtitle: (!isChat && item.formattedTypeAndDepth != null)
-                              ? Text(
-                                  item.formattedTypeAndDepth!,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: colorScheme.onSurfaceVariant
-                                        .withValues(alpha: 0.8),
-                                  ),
-                                )
-                              : null,
-                          trailing: IconButton(
-                            icon: const Icon(Icons.close, size: 14),
-                            tooltip: 'Delete',
-                            visualDensity: VisualDensity.compact,
-                            onPressed: () => _deleteHistoryItem(item.id),
-                          ),
-                          onTap: () => _selectHistoryItem(item),
-                        );
-                      },
-                    ),
-            ),
-
-            Divider(
-              height: 1,
-              thickness: 1,
-              color: Theme.of(context).dividerColor.withValues(alpha: 0.3),
-            ),
-
-            // Bottom: About entry
-            ListTile(
-              dense: true,
-              leading: const Icon(Icons.info_outline, size: 20),
-              title: const Text('About', style: TextStyle(fontSize: 14)),
-              onTap: () => _showAboutDialog(context),
+              child: _buildGroupedHistoryList(!isDrawer),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGroupedHistoryList(bool isWide) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    if (_history.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.history_toggle_off,
+                size: 32,
+                color: colorScheme.outlineVariant,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'No research history yet',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final todayItems = <HistoryItem>[];
+    final yesterdayItems = <HistoryItem>[];
+    final earlierItems = <HistoryItem>[];
+
+    for (final item in _history) {
+      final group = _getDateGroup(item.timestamp);
+      if (group == 'Today') {
+        todayItems.add(item);
+      } else if (group == 'Yesterday') {
+        yesterdayItems.add(item);
+      } else {
+        earlierItems.add(item);
+      }
+    }
+
+    return ListView(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      children: [
+        if (todayItems.isNotEmpty) ...[
+          _buildGroupHeader('Today'),
+          for (final item in todayItems)
+            _HistoryTile(
+              item: item,
+              isSelected: _selectedHistoryItemId == item.id,
+              isWide: isWide,
+              relativeTime: _formatRelativeTime(item.timestamp),
+              onTap: () => _selectHistoryItem(item),
+              onDelete: () => _deleteHistoryItem(item.id),
+            ),
+        ],
+        if (yesterdayItems.isNotEmpty) ...[
+          _buildGroupHeader('Yesterday'),
+          for (final item in yesterdayItems)
+            _HistoryTile(
+              item: item,
+              isSelected: _selectedHistoryItemId == item.id,
+              isWide: isWide,
+              relativeTime: _formatRelativeTime(item.timestamp),
+              onTap: () => _selectHistoryItem(item),
+              onDelete: () => _deleteHistoryItem(item.id),
+            ),
+        ],
+        if (earlierItems.isNotEmpty) ...[
+          _buildGroupHeader('Earlier'),
+          for (final item in earlierItems)
+            _HistoryTile(
+              item: item,
+              isSelected: _selectedHistoryItemId == item.id,
+              isWide: isWide,
+              relativeTime: _formatRelativeTime(item.timestamp),
+              onTap: () => _selectHistoryItem(item),
+              onDelete: () => _deleteHistoryItem(item.id),
+            ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildGroupHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Text(
+        title,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.8),
         ),
       ),
     );
@@ -611,82 +902,135 @@ class _HomeScreenState extends State<HomeScreen> {
     final hasResultOrActivity =
         _askResponse != null || _isLoading || _errorMessage != null;
 
-    if (!hasResultOrActivity) {
-      // Centered Hero Home View
-      return _buildHeroView(canSubmit);
-    }
-
-    // Result or Activity View with Compact Search Bar at Top
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 860),
-        child: ListView(
-          padding: EdgeInsets.symmetric(
-            horizontal: isWide ? 24 : 16,
-            vertical: 16,
-          ),
-          children: [
-            _buildSearchBar(canSubmit: canSubmit, isHero: false),
-            const SizedBox(height: 20),
-            if (_isLoading) _buildLoadingIndicator(),
-            if (_errorMessage != null && !_isLoading) _buildErrorCard(),
-            if (_askResponse != null && !_isLoading) ...[
-              if (_askResponse!.mode == 'chat')
-                _buildChatResponseCard(_askResponse!)
-              else if (_askResponse!.mode == 'research' &&
-                  _askResponse!.research != null)
-                _buildResultSection(_askResponse!.research!),
-            ],
-          ],
-        ),
-      ),
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 250),
+      switchInCurve: Curves.easeOut,
+      switchOutCurve: Curves.easeIn,
+      child: !hasResultOrActivity
+          ? _buildHeroView(canSubmit)
+          : _buildResultView(canSubmit),
     );
   }
 
   Widget _buildHeroView(bool canSubmit) {
     final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Center(
+      key: const ValueKey('hero_view'),
       child: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: colorScheme.primaryContainer.withValues(alpha: 0.3),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.auto_awesome,
-                size: 44,
-                color: colorScheme.primary,
-              ),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              'Multi-Agent Research Assistant',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // Large Display Title with subtle gradient on key word
+              ShaderMask(
+                shaderCallback: (bounds) => (isDark
+                        ? AppTheme.heroTitleGradientDark
+                        : AppTheme.heroTitleGradient)
+                    .createShader(bounds),
+                child: Text(
+                  'Autonomous Multi-Agent Research',
+                  textAlign: TextAlign.center,
+                  style: AppTheme.displayFont(
+                    fontSize: 34,
                     fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                    letterSpacing: -0.5,
                   ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Autonomous research with live web verification & cited reports',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 15,
-                color: colorScheme.onSurfaceVariant,
+                ),
               ),
-            ),
+              const SizedBox(height: 12),
+
+              // One-line Tagline
+              Text(
+                'Live web investigation, strict multi-source corroboration, and transparent synthesis.',
+                textAlign: TextAlign.center,
+                style: AppTheme.bodyFont(
+                  fontSize: 15,
+                  color: colorScheme.onSurfaceVariant,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 36),
+
+              // Centered Search Bar with Glass-like Card Styling (28px rounded)
+              _buildSearchBar(canSubmit: canSubmit, isHero: true),
+              const SizedBox(height: 24),
+
+              // 3 Clickable Example Prompt Chips
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                alignment: WrapAlignment.center,
+                children: [
+                  _buildExampleChip('Quantum computing in 2026'),
+                  _buildExampleChip('Latest on CRISPR'),
+                  _buildExampleChip('Explain how RAG works'),
+                ],
+              ),
+              const SizedBox(height: 48),
+
+              // Footer About Link
+              TextButton.icon(
+                onPressed: () => _showAboutDialog(context),
+                icon: const Icon(Icons.info_outline, size: 14),
+                label: const Text(
+                  'About Multi-Agent Assistant',
+                  style: TextStyle(fontSize: 12),
+                ),
+                style: TextButton.styleFrom(
+                  foregroundColor: colorScheme.onSurfaceVariant.withValues(alpha: 0.8),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExampleChip(String prompt) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return ActionChip(
+      avatar: const Icon(Icons.north_west, size: 13),
+      label: Text(
+        prompt,
+        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+      ),
+      backgroundColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+      side: BorderSide(color: colorScheme.outlineVariant.withValues(alpha: 0.5)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      onPressed: () => _onSelectExamplePrompt(prompt),
+    );
+  }
+
+  Widget _buildResultView(bool canSubmit) {
+    return Center(
+      key: const ValueKey('result_view'),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 860),
+        child: ListView(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+          children: [
+            _buildSearchBar(canSubmit: canSubmit, isHero: false),
+            const SizedBox(height: 20),
+            if (_isLoading) _buildLoadingIndicator(),
+            if (_errorMessage != null) ...[
+              _buildErrorCard(),
+              const SizedBox(height: 16),
+            ],
+            if (_askResponse != null) ...[
+              if (_askResponse!.mode == 'chat')
+                _buildChatResponseCard(_askResponse!)
+              else if (_askResponse!.research != null)
+                _buildResultSection(_askResponse!.research!),
+            ],
             const SizedBox(height: 32),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 720),
-              child: _buildSearchBar(canSubmit: canSubmit, isHero: true),
-            ),
           ],
         ),
       ),
@@ -695,29 +1039,36 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildSearchBar({required bool canSubmit, required bool isHero}) {
     final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment:
-          isHero ? CrossAxisAlignment.center : CrossAxisAlignment.start,
       children: [
+        // Glass-like container
         Container(
           decoration: BoxDecoration(
-            color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-            borderRadius: BorderRadius.circular(28),
+            color: isDark
+                ? colorScheme.surfaceContainer.withValues(alpha: 0.85)
+                : Colors.white.withValues(alpha: 0.92),
+            borderRadius: BorderRadius.circular(AppTheme.radiusPill),
             border: Border.all(
-              color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+              color: colorScheme.outlineVariant.withValues(alpha: 0.7),
+              width: 1.2,
             ),
+            boxShadow: [
+              BoxShadow(
+                color: colorScheme.primary.withValues(alpha: isDark ? 0.2 : 0.08),
+                blurRadius: isHero ? 24 : 14,
+                spreadRadius: isHero ? 2 : 1,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
-          padding: EdgeInsets.symmetric(
-            horizontal: isHero ? 14 : 10,
-            vertical: isHero ? 4 : 2,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
           child: Row(
             children: [
               Icon(
                 Icons.search,
-                color: colorScheme.onSurfaceVariant,
+                color: colorScheme.primary,
                 size: isHero ? 22 : 20,
               ),
               const SizedBox(width: 10),
@@ -748,17 +1099,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         },
                 ),
               const SizedBox(width: 4),
-              FilledButton.icon(
+              PrimaryResearchButton(
                 onPressed: canSubmit ? _executeAsk : null,
-                icon: const Icon(Icons.auto_awesome, size: 16),
-                label: const Text('Research'),
-                style: FilledButton.styleFrom(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                ),
+                isLoading: _isLoading,
               ),
             ],
           ),
@@ -869,8 +1212,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   fontSize: 12,
                   fontWeight: FontWeight.w500,
                   color: _isLoading
-                      ? colorScheme.onSurface.withValues(alpha: 0.38)
-                      : colorScheme.onSurface,
+                    ? colorScheme.onSurface.withValues(alpha: 0.38)
+                    : colorScheme.onSurface,
                 ),
               ),
               const SizedBox(width: 2),
@@ -973,8 +1316,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   fontSize: 12,
                   fontWeight: FontWeight.w500,
                   color: _isLoading
-                      ? colorScheme.onSurface.withValues(alpha: 0.38)
-                      : colorScheme.onSurface,
+                    ? colorScheme.onSurface.withValues(alpha: 0.38)
+                    : colorScheme.onSurface,
                 ),
               ),
               const SizedBox(width: 2),
@@ -1046,14 +1389,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildLoadingIndicator() {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Card(
       elevation: 0,
-      color: Theme.of(context)
-          .colorScheme
-          .surfaceContainerHighest
-          .withValues(alpha: 0.4),
+      color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppTheme.radiusCard),
       ),
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -1064,7 +1406,10 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 16),
             Text(
               _loadingText,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              style: AppTheme.displayFont(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             if (_loadingText != 'Thinking...') ...[
               const SizedBox(height: 6),
@@ -1073,7 +1418,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 13,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  color: colorScheme.onSurfaceVariant,
                 ),
               ),
             ],
@@ -1090,7 +1435,7 @@ class _HomeScreenState extends State<HomeScreen> {
       elevation: 0,
       color: colorScheme.errorContainer.withValues(alpha: 0.3),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppTheme.radiusCard),
         side: BorderSide(color: colorScheme.error.withValues(alpha: 0.4)),
       ),
       child: Padding(
@@ -1135,9 +1480,9 @@ class _HomeScreenState extends State<HomeScreen> {
     return Card(
       elevation: 0,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppTheme.radiusCard),
         side: BorderSide(
-          color: Theme.of(context).dividerColor.withValues(alpha: 0.3),
+          color: colorScheme.outlineVariant.withValues(alpha: 0.5),
         ),
       ),
       child: Padding(
@@ -1147,12 +1492,20 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             Row(
               children: [
-                Icon(
-                  Icons.chat_bubble_outline,
-                  size: 18,
-                  color: colorScheme.primary,
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: colorScheme.secondaryContainer.withValues(alpha: 0.6),
+                  ),
+                  child: Icon(
+                    Icons.chat_bubble_outline,
+                    size: 16,
+                    color: colorScheme.secondary,
+                  ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 10),
                 Text(
                   'Assistant',
                   style: TextStyle(
@@ -1175,8 +1528,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildResultSection(ResearchResponse res) {
-    final markdownContent = _cleanReportMarkdown(res.reportMarkdown);
     final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     // Build URL to title map for claims
     final sourceTitleMap = <String, String>{};
@@ -1189,16 +1542,26 @@ class _HomeScreenState extends State<HomeScreen> {
     final activeType = _activeResearchType ?? _selectedType;
     final activeDepth = _activeResearchDepth ?? _selectedDepth;
 
+    // Claim Counts
+    final supportedCount =
+        res.claims.where((c) => c.status.toLowerCase() == 'supported').length;
+    final singleSourceCount =
+        res.claims.where((c) => c.status.toLowerCase() == 'single_source').length;
+    final unsupportedCount =
+        res.claims.where((c) => c.status.toLowerCase() == 'unsupported').length;
+
+    final cleanedMarkdown = _cleanReportMarkdown(res.reportMarkdown);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Report Markdown Card
+        // 1. Report Header Card
         Card(
           elevation: 0,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(AppTheme.radiusCard),
             side: BorderSide(
-              color: Theme.of(context).dividerColor.withValues(alpha: 0.3),
+              color: colorScheme.outlineVariant.withValues(alpha: 0.5),
             ),
           ),
           child: Padding(
@@ -1206,10 +1569,22 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Small chips at the top of the research report
+                // Topic as Title
+                Text(
+                  res.topic,
+                  style: AppTheme.displayFont(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: colorScheme.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // Type & Depth Badges and Audit Summary Strip
                 Wrap(
                   spacing: 8,
-                  runSpacing: 6,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     _buildReportChip(
                       icon: _iconForType(activeType),
@@ -1221,23 +1596,34 @@ class _HomeScreenState extends State<HomeScreen> {
                       label: 'Depth: ${_formatDepth(activeDepth)}',
                       colorScheme: colorScheme,
                     ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                MarkdownBody(
-                  data: markdownContent,
-                  selectable: true,
-                  onTapLink: (text, href, title) {
-                    if (href != null && href.isNotEmpty) {
-                      _launchUrlString(href);
-                    }
-                  },
-                  styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-                    a: TextStyle(
-                      color: Theme.of(context).colorScheme.primary,
-                      decoration: TextDecoration.underline,
+                    const SizedBox(width: 4),
+                    // Audit count badges
+                    _buildAuditCountBadge(
+                      label: '$supportedCount Supported',
+                      icon: Icons.check_circle,
+                      color: AppTheme.statusSupported,
+                      bgColor: isDark
+                          ? AppTheme.statusSupportedBgDark
+                          : AppTheme.statusSupportedBgLight,
                     ),
-                  ),
+                    _buildAuditCountBadge(
+                      label: '$singleSourceCount Single source',
+                      icon: Icons.warning_amber_rounded,
+                      color: AppTheme.statusSingleSource,
+                      bgColor: isDark
+                          ? AppTheme.statusSingleSourceBgDark
+                          : AppTheme.statusSingleSourceBgLight,
+                    ),
+                    if (unsupportedCount > 0)
+                      _buildAuditCountBadge(
+                        label: '$unsupportedCount Unsupported',
+                        icon: Icons.cancel_outlined,
+                        color: AppTheme.statusUnsupported,
+                        bgColor: isDark
+                            ? AppTheme.statusUnsupportedBgDark
+                            : AppTheme.statusUnsupportedBgLight,
+                      ),
+                  ],
                 ),
               ],
             ),
@@ -1245,41 +1631,110 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         const SizedBox(height: 16),
 
-        // Collapsible Claims List (expanded by default, shows count)
+        // 2. Synthesized Report Card
         Card(
           elevation: 0,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(AppTheme.radiusCard),
             side: BorderSide(
-              color: Theme.of(context).dividerColor.withValues(alpha: 0.3),
+              color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 760),
+              child: MarkdownBody(
+                data: cleanedMarkdown,
+                selectable: true,
+                onTapLink: (text, href, title) {
+                  if (href != null && href.isNotEmpty) {
+                    _launchUrlString(href);
+                  }
+                },
+                styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                  p: AppTheme.bodyFont(
+                    fontSize: 14,
+                    height: 1.6,
+                    color: colorScheme.onSurface,
+                  ),
+                  h1: AppTheme.displayFont(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: colorScheme.primary,
+                  ),
+                  h2: AppTheme.displayFont(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: colorScheme.primary,
+                  ),
+                  h3: AppTheme.displayFont(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: colorScheme.onSurface,
+                  ),
+                  a: TextStyle(
+                    color: colorScheme.primary,
+                    decoration: TextDecoration.underline,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  blockquoteDecoration: BoxDecoration(
+                    color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                    border: Border(
+                      left: BorderSide(color: colorScheme.primary, width: 4),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // 3. Claims & Verification Audit Panel (expanded by default)
+        Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppTheme.radiusCard),
+            side: BorderSide(
+              color: colorScheme.outlineVariant.withValues(alpha: 0.5),
             ),
           ),
           child: ExpansionTile(
             initiallyExpanded: true,
-            leading: const Icon(Icons.fact_check_outlined),
+            leading: Icon(Icons.fact_check_outlined, color: colorScheme.primary),
             title: Text(
               'Claims & Verification Audit (${res.claims.length})',
-              style: const TextStyle(fontWeight: FontWeight.bold),
+              style: AppTheme.displayFont(
+                fontWeight: FontWeight.bold,
+                fontSize: 15,
+              ),
             ),
             children: res.claims.map((claim) {
               final urls = claim.sourceUrls.isNotEmpty
                   ? claim.sourceUrls
                   : (claim.sourceUrl != null ? [claim.sourceUrl!] : <String>[]);
 
+              final statusColor = _statusColor(claim.status);
+
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .surfaceContainerHighest
-                        .withValues(alpha: 0.3),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                      border: Border(
+                        left: BorderSide(color: statusColor, width: 4),
+                        top: BorderSide(color: colorScheme.outlineVariant.withValues(alpha: 0.3)),
+                        right: BorderSide(color: colorScheme.outlineVariant.withValues(alpha: 0.3)),
+                        bottom: BorderSide(color: colorScheme.outlineVariant.withValues(alpha: 0.3)),
+                      ),
+                    ),
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -1291,6 +1746,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               style: const TextStyle(
                                 fontWeight: FontWeight.w600,
                                 fontSize: 14,
+                                height: 1.4,
                               ),
                             ),
                           ),
@@ -1302,15 +1758,10 @@ class _HomeScreenState extends State<HomeScreen> {
                           width: double.infinity,
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .surfaceContainerHighest,
+                            color: colorScheme.surfaceContainerHighest,
                             borderRadius: BorderRadius.circular(8),
                             border: Border.all(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .outlineVariant
-                                  .withValues(alpha: 0.5),
+                              color: colorScheme.outlineVariant.withValues(alpha: 0.5),
                             ),
                           ),
                           child: Text(
@@ -1318,107 +1769,110 @@ class _HomeScreenState extends State<HomeScreen> {
                             style: TextStyle(
                               fontStyle: FontStyle.italic,
                               fontSize: 13,
-                              color: Theme.of(context).colorScheme.onSurface,
+                              color: colorScheme.onSurface,
+                              height: 1.4,
                             ),
                           ),
                         ),
                       ],
                       if (urls.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        for (final url in urls)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Tooltip(
-                              message: url,
-                              child: InkWell(
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            for (final url in urls)
+                              InkWell(
                                 onTap: () => _launchUrlString(url),
-                                borderRadius: BorderRadius.circular(4),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 2),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                borderRadius: BorderRadius.circular(12),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: colorScheme.surfaceContainerHighest
+                                        .withValues(alpha: 0.7),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: colorScheme.outlineVariant
+                                          .withValues(alpha: 0.5),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      if (sourceTitleMap[url] != null &&
-                                          sourceTitleMap[url]!.trim().isNotEmpty &&
-                                          sourceTitleMap[url]!.trim() != url)
-                                        Padding(
-                                          padding: const EdgeInsets.only(bottom: 2),
-                                          child: Text(
-                                            sourceTitleMap[url]!.trim(),
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w500,
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .onSurface,
-                                            ),
-                                          ),
+                                      Icon(
+                                        Icons.open_in_new,
+                                        size: 12,
+                                        color: colorScheme.primary,
+                                      ),
+                                      const SizedBox(width: 5),
+                                      Text(
+                                        _extractDomain(url),
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w500,
+                                          color: colorScheme.primary,
+                                          decoration: TextDecoration.underline,
                                         ),
-                                      Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(
-                                            Icons.link,
-                                            size: 14,
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .primary,
-                                          ),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            _extractDomain(url),
-                                            style: TextStyle(
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .primary,
-                                              decoration:
-                                                  TextDecoration.underline,
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w500,
-                                            ),
-                                          ),
-                                        ],
                                       ),
                                     ],
                                   ),
                                 ),
                               ),
-                            ),
-                          ),
+                          ],
+                        ),
                       ],
                     ],
                   ),
                 ),
-              );
+              ),
+            );
             }).toList(),
           ),
         ),
         const SizedBox(height: 16),
 
-        // Collapsible Sources List (collapsed by default, shows count)
+        // 4. Consulted Sources Panel (collapsed by default)
         Card(
           elevation: 0,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(AppTheme.radiusCard),
             side: BorderSide(
-              color: Theme.of(context).dividerColor.withValues(alpha: 0.3),
+              color: colorScheme.outlineVariant.withValues(alpha: 0.5),
             ),
           ),
           child: ExpansionTile(
             initiallyExpanded: false,
-            leading: const Icon(Icons.link_outlined),
+            leading: Icon(Icons.link_outlined, color: colorScheme.primary),
             title: Text(
               'Consulted Sources (${res.sources.length})',
-              style: const TextStyle(fontWeight: FontWeight.bold),
+              style: AppTheme.displayFont(
+                fontWeight: FontWeight.bold,
+                fontSize: 15,
+              ),
             ),
             children: res.sources.map((source) {
               final domain = _extractDomain(source.url);
               final hasTitle = source.title.trim().isNotEmpty &&
                   source.title.trim() != source.url;
+              final firstLetter = domain.isNotEmpty
+                  ? domain[0].toUpperCase()
+                  : 'S';
 
               return ListTile(
                 dense: true,
-                leading: const Icon(Icons.language, size: 20),
+                leading: CircleAvatar(
+                  radius: 14,
+                  backgroundColor: colorScheme.primaryContainer,
+                  child: Text(
+                    firstLetter,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: colorScheme.primary,
+                    ),
+                  ),
+                ),
                 title: hasTitle
                     ? Text(
                         source.title.trim(),
@@ -1429,19 +1883,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   message: source.url,
                   child: InkWell(
                     onTap: () => _launchUrlString(source.url),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          domain,
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.primary,
-                            decoration: TextDecoration.underline,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
+                    child: Text(
+                      domain,
+                      style: TextStyle(
+                        color: colorScheme.primary,
+                        decoration: TextDecoration.underline,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ),
                 ),
@@ -1459,52 +1908,47 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildStatusChip(String status) {
+  Color _statusColor(String status) {
     switch (status.toLowerCase()) {
       case 'supported':
-        return const Chip(
-          avatar: Icon(Icons.check_circle, size: 14, color: Color(0xFF15803D)),
-          label: Text('supported'),
-          backgroundColor: Color(0xFFDCFCE7),
-          labelStyle: TextStyle(
-            color: Color(0xFF15803D),
-            fontWeight: FontWeight.bold,
-            fontSize: 11,
-          ),
-          side: BorderSide(color: Color(0xFF86EFAC)),
-          visualDensity: VisualDensity.compact,
-          padding: EdgeInsets.zero,
-        );
+        return AppTheme.statusSupported;
       case 'single_source':
-        return const Chip(
-          avatar: Icon(Icons.warning_amber_rounded, size: 14, color: Color(0xFFB45309)),
-          label: Text('single_source'),
-          backgroundColor: Color(0xFFFEF3C7),
-          labelStyle: TextStyle(
-            color: Color(0xFFB45309),
-            fontWeight: FontWeight.bold,
-            fontSize: 11,
-          ),
-          side: BorderSide(color: Color(0xFFFDE68A)),
-          visualDensity: VisualDensity.compact,
-          padding: EdgeInsets.zero,
-        );
+        return AppTheme.statusSingleSource;
       case 'unsupported':
       default:
-        return const Chip(
-          avatar: Icon(Icons.cancel_outlined, size: 14, color: Color(0xFFB91C1C)),
-          label: Text('unsupported'),
-          backgroundColor: Color(0xFFFEE2E2),
-          labelStyle: TextStyle(
-            color: Color(0xFFB91C1C),
-            fontWeight: FontWeight.bold,
-            fontSize: 11,
-          ),
-          side: BorderSide(color: Color(0xFFFCA5A5)),
-          visualDensity: VisualDensity.compact,
-          padding: EdgeInsets.zero,
-        );
+        return AppTheme.statusUnsupported;
     }
+  }
+
+  Widget _buildAuditCountBadge({
+    required String label,
+    required IconData icon,
+    required Color color,
+    required Color bgColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildReportChip({
@@ -1578,5 +2022,205 @@ class _HomeScreenState extends State<HomeScreen> {
         return Icons.tune;
     }
   }
+
+  Widget _buildStatusChip(String status) {
+    switch (status.toLowerCase()) {
+      case 'supported':
+        return const Chip(
+          avatar: Icon(Icons.check_circle, size: 14, color: Color(0xFF15803D)),
+          label: Text('supported'),
+          backgroundColor: Color(0xFFDCFCE7),
+          labelStyle: TextStyle(
+            color: Color(0xFF15803D),
+            fontWeight: FontWeight.bold,
+            fontSize: 11,
+          ),
+          side: BorderSide(color: Color(0xFF86EFAC)),
+          visualDensity: VisualDensity.compact,
+          padding: EdgeInsets.zero,
+        );
+      case 'single_source':
+        return const Chip(
+          avatar: Icon(Icons.warning_amber_rounded, size: 14, color: Color(0xFFB45309)),
+          label: Text('single_source'),
+          backgroundColor: Color(0xFFFEF3C7),
+          labelStyle: TextStyle(
+            color: Color(0xFFB45309),
+            fontWeight: FontWeight.bold,
+            fontSize: 11,
+          ),
+          side: BorderSide(color: Color(0xFFFDE68A)),
+          visualDensity: VisualDensity.compact,
+          padding: EdgeInsets.zero,
+        );
+      case 'unsupported':
+      default:
+        return const Chip(
+          avatar: Icon(Icons.cancel_outlined, size: 14, color: Color(0xFFB91C1C)),
+          label: Text('unsupported'),
+          backgroundColor: Color(0xFFFEE2E2),
+          labelStyle: TextStyle(
+            color: Color(0xFFB91C1C),
+            fontWeight: FontWeight.bold,
+            fontSize: 11,
+          ),
+          side: BorderSide(color: Color(0xFFFCA5A5)),
+          visualDensity: VisualDensity.compact,
+          padding: EdgeInsets.zero,
+        );
+    }
+  }
 }
 
+/// Redesigned sidebar item with mode icon in circle, relative timestamp,
+/// active item highlight, and hover delete button.
+class _HistoryTile extends StatefulWidget {
+  final HistoryItem item;
+  final bool isSelected;
+  final bool isWide;
+  final VoidCallback onTap;
+  final VoidCallback onDelete;
+  final String relativeTime;
+
+  const _HistoryTile({
+    required this.item,
+    required this.isSelected,
+    required this.isWide,
+    required this.onTap,
+    required this.onDelete,
+    required this.relativeTime,
+  });
+
+  @override
+  State<_HistoryTile> createState() => _HistoryTileState();
+}
+
+class _HistoryTileState extends State<_HistoryTile> {
+  bool _isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final isChat = widget.item.mode == 'chat';
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final showDelete = !widget.isWide || _isHovered;
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+          color: widget.isSelected
+              ? colorScheme.primaryContainer.withValues(alpha: isDark ? 0.35 : 0.6)
+              : (_isHovered
+                  ? colorScheme.surfaceContainerHighest.withValues(alpha: 0.5)
+                  : Colors.transparent),
+          border: Border.all(
+            color: widget.isSelected
+                ? colorScheme.primary.withValues(alpha: 0.6)
+                : (_isHovered
+                    ? colorScheme.outlineVariant.withValues(alpha: 0.4)
+                    : Colors.transparent),
+            width: 1,
+          ),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+          onTap: widget.onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // Leading mode icon in tinted circle
+                Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: isChat
+                        ? colorScheme.secondaryContainer.withValues(alpha: 0.6)
+                        : colorScheme.primaryContainer.withValues(alpha: 0.6),
+                  ),
+                  child: Icon(
+                    isChat ? Icons.chat_bubble_outline : Icons.auto_awesome,
+                    size: 15,
+                    color: isChat ? colorScheme.secondary : colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                // Title and subtitle
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        widget.item.message,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight:
+                              widget.isSelected ? FontWeight.bold : FontWeight.w500,
+                          color: colorScheme.onSurface,
+                          height: 1.25,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Row(
+                        children: [
+                          Text(
+                            widget.relativeTime,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: colorScheme.onSurfaceVariant
+                                  .withValues(alpha: 0.75),
+                            ),
+                          ),
+                          if (!isChat &&
+                              widget.item.formattedTypeAndDepth != null) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 5, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: colorScheme.surfaceContainerHighest
+                                    .withValues(alpha: 0.8),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                widget.item.formattedTypeAndDepth!,
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  color: colorScheme.primary,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                if (showDelete)
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 14),
+                    tooltip: 'Delete',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: widget.onDelete,
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

@@ -90,8 +90,8 @@ void main() {
     await tester.pumpWidget(const ResearchAssistantApp());
     await tester.pumpAndSettle();
 
-    // Find and tap About entry in sidebar
-    final aboutFinder = find.widgetWithText(ListTile, 'About');
+    // Find and tap About button in top bar (or hero footer)
+    final aboutFinder = find.byTooltip('About Multi-Agent Assistant');
     expect(aboutFinder, findsOneWidget);
     await tester.tap(aboutFinder);
     await tester.pumpAndSettle();
