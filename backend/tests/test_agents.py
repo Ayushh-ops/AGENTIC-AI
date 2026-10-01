@@ -404,3 +404,72 @@ def test_tag_stripping_and_synthesizer_wording():
         assert "✓ Verified" in report
         assert "⚠ Single source" in report
         assert "## References" in report
+
+
+def test_synthesizer_drops_unsupported_from_findings_and_cites_only_used_sources():
+    """
+    Verify:
+    1. Unsupported claims do NOT appear in the prompt for Executive Summary/Key Findings.
+    2. Unsupported claims appear in audit section with (No direct citation).
+    3. References lists ONLY sources cited by at least one claim (supporters).
+    4. Reference numbering matches the 'Source N' labels in the audit section.
+    """
+    topic = "Quantum Computing"
+    claims = [
+        {
+            "statement": "Corroborated quantum claim.",
+            "status": "supported",
+            "evidence": "Corroborated quote.",
+            "source_urls": ["https://cited1.org/page", "https://cited2.org/page"],
+            "source_url": "https://cited1.org/page",
+        },
+        {
+            "statement": "Single source quantum claim.",
+            "status": "single_source",
+            "evidence": "Single source quote.",
+            "source_urls": ["https://cited1.org/page"],
+            "source_url": "https://cited1.org/page",
+        },
+        {
+            "statement": "Bogus unsupported claim.",
+            "status": "unsupported",
+            "evidence": "",
+            "source_urls": [],
+            "source_url": None,
+        },
+    ]
+    sources = [
+        {"title": "Cited Source One", "url": "https://cited1.org/page", "content": "Content 1"},
+        {"title": "Cited Source Two", "url": "https://cited2.org/page", "content": "Content 2"},
+        {"title": "Unused Consulted Source", "url": "https://unused3.org/page", "content": "Content 3"},
+    ]
+
+    mock_llm_output = (
+        "## Executive Summary\n"
+        "Quantum computing is progressing based on corroborated evidence.\n\n"
+        "## Key Findings\n"
+        "- Corroborated quantum claim is verified.\n"
+        "- Single source quantum claim is reported by one source."
+    )
+
+    with patch("backend.app.agents.synthesizer.chat", return_value=mock_llm_output) as mock_chat:
+        report = synthesize_report(topic, claims, sources)
+
+        # 1. Unsupported claims excluded from prompt sent to LLM
+        prompt_args = mock_chat.call_args[1]
+        user_content = prompt_args["user"]
+        assert "Corroborated quantum claim." in user_content
+        assert "Single source quantum claim." in user_content
+        assert "Bogus unsupported claim." not in user_content
+
+        # 2. Audit section preserves unsupported claim
+        assert "✗ Unsupported**: Bogus unsupported claim. (No direct citation)" in report
+        assert "✓ Verified**: Corroborated quantum claim. ([Source 1](https://cited1.org/page), [Source 2](https://cited2.org/page))" in report
+        assert "⚠ Single source**: Single source quantum claim. ([Source 1](https://cited1.org/page))" in report
+
+        # 3. References lists only cited sources (unused source must NOT be listed)
+        assert "## References" in report
+        assert "1. [Cited Source One](https://cited1.org/page)" in report
+        assert "2. [Cited Source Two](https://cited2.org/page)" in report
+        assert "Unused Consulted Source" not in report
+        assert "https://unused3.org/page" not in report
