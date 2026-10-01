@@ -58,3 +58,30 @@ class ResearchResponse(BaseModel):
     report_markdown: str
     sources: List[SourceItem]
     claims: List[ClaimItem]
+
+
+class AskRequest(BaseModel):
+    """Payload for submitting a message or query to POST /ask."""
+    message: str = Field(
+        ...,
+        min_length=1,
+        max_length=200,
+        description="User message or research topic (non-empty, max 200 characters).",
+    )
+
+    @field_validator("message")
+    @classmethod
+    def validate_non_empty_message(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Message must not be empty or whitespace only.")
+        return stripped
+
+
+class AskResponse(BaseModel):
+    """Consolidated response model for POST /ask."""
+    mode: str = Field(..., description="'chat' or 'research'")
+    reply: Optional[str] = Field(default=None, description="Chat reply text if mode is chat")
+    research: Optional[ResearchResponse] = Field(default=None, description="Research results if mode is research")
+    llm_calls: Optional[int] = Field(default=None, description="Number of LLM calls made")
+    search_calls: Optional[int] = Field(default=None, description="Number of search calls made")

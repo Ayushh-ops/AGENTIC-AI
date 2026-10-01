@@ -2,13 +2,18 @@
 Search service module for querying the Tavily Search REST API via direct HTTP.
 """
 
+import contextvars
 import time
-from typing import Dict, List
+from typing import Dict, List, Optional
 import urllib.parse
 import httpx
 from backend.app.core.config import settings
 
 TAVILY_API_URL = "https://api.tavily.com/search"
+
+search_call_counter: contextvars.ContextVar[Optional[list]] = contextvars.ContextVar(
+    "search_call_counter", default=None
+)
 
 EXCLUDED_DOMAINS = [
     "youtube.com",
@@ -55,6 +60,10 @@ def search(query: str, max_results: int = 5) -> List[Dict[str, str]]:
     Raises:
         SearchError: If TAVILY_API_KEY is not configured or the request fails.
     """
+    counter = search_call_counter.get()
+    if counter is not None:
+        counter.append(1)
+
     api_key = settings.tavily_api_key
     if not api_key:
         raise SearchError("Tavily API key is not configured.")
