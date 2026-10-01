@@ -91,7 +91,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Find and tap About button in top bar (or hero footer)
-    final aboutFinder = find.byTooltip('About Multi-Agent Assistant');
+    final aboutFinder = find.byTooltip('About Multi Agent Research Assistant');
     expect(aboutFinder, findsOneWidget);
     await tester.tap(aboutFinder);
     await tester.pumpAndSettle();

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -430,7 +431,7 @@ class _HomeScreenState extends State<HomeScreen>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'About Multi-Agent Assistant',
+                          'About Multi Agent Research Assistant',
                           style: AppTheme.displayFont(
                             fontSize: 32,
                             color: ink,
@@ -659,11 +660,26 @@ class _HomeScreenState extends State<HomeScreen>
   void _scrollToSection(GlobalKey key) {
     final ctx = key.currentContext;
     if (ctx != null) {
-      Scrollable.ensureVisible(
-        ctx,
-        duration: const Duration(milliseconds: 400),
-        curve: Curves.easeInOut,
-      );
+      final box = ctx.findRenderObject() as RenderBox?;
+      if (box != null && _landingScrollController.hasClients) {
+        final viewport = RenderAbstractViewport.of(box);
+        final revealOffset = viewport.getOffsetToReveal(box, 0.0).offset;
+        final targetOffset = (revealOffset - 16.0).clamp(
+          0.0,
+          _landingScrollController.position.maxScrollExtent,
+        );
+        _landingScrollController.animateTo(
+          targetOffset,
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeInOut,
+        );
+      } else {
+        Scrollable.ensureVisible(
+          ctx,
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeInOut,
+        );
+      }
     }
   }
 
@@ -760,7 +776,7 @@ class _HomeScreenState extends State<HomeScreen>
               ),
               const SizedBox(width: 8),
               Tooltip(
-                message: 'About Multi-Agent Assistant',
+                message: 'About Multi Agent Research Assistant',
                 child: TextButton(
                   onPressed: () => _showAboutDialog(context),
                   style: TextButton.styleFrom(
@@ -1115,9 +1131,9 @@ class _HomeScreenState extends State<HomeScreen>
     final h2Size = (screenWidth * 0.05).clamp(34.0, 56.0);
 
     return Container(
-      key: _howItWorksKey,
       padding: const EdgeInsets.only(top: 84),
       child: Column(
+        key: _howItWorksKey,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
@@ -1299,9 +1315,9 @@ class _HomeScreenState extends State<HomeScreen>
     final bool isStacked = screenWidth < 860;
 
     return Container(
-      key: _claimsKey,
       padding: const EdgeInsets.only(top: 84),
       child: Column(
+        key: _claimsKey,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
@@ -1853,10 +1869,13 @@ class _HomeScreenState extends State<HomeScreen>
     required bool isDark,
   }) {
     final screenWidth = MediaQuery.of(context).size.width;
-    final bool isTopBarWide = screenWidth >= 700;
+    final bool isNarrow = screenWidth < 700;
+    final bool isSidebarVisible = isWide && _isSidebarOpen;
+    final double hPad = (screenWidth * 0.03).clamp(14.0, 24.0);
+    final double topBarHeight = isNarrow ? 214.0 : 164.0;
 
     return PreferredSize(
-      preferredSize: Size.fromHeight(isTopBarWide ? 88 : 134),
+      preferredSize: Size.fromHeight(topBarHeight),
       child: Container(
         decoration: BoxDecoration(
           color: isDark ? AppTheme.darkBg : AppTheme.lightBg,
@@ -1870,116 +1889,87 @@ class _HomeScreenState extends State<HomeScreen>
         child: SafeArea(
           bottom: false,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            child: isTopBarWide
-                ? Column(
-                    mainAxisSize: MainAxisSize.min,
+            padding: EdgeInsets.fromLTRB(hPad, 14, hPad, 14),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Row 1: sidebar-toggle icon button, [wordmark ONLY if sidebar is hidden], spacer, About text button, theme icon button.
+                Row(
+                  children: [
+                    Builder(
+                      builder: (ctx) => _buildIconButton(
+                        icon: Icons.menu,
+                        tooltip: 'Toggle sidebar',
+                        isDark: isDark,
+                        size: 36,
+                        onPressed: () {
+                          if (isWide) {
+                            setState(() {
+                              _isSidebarOpen = !_isSidebarOpen;
+                            });
+                          } else {
+                            Scaffold.of(ctx).openDrawer();
+                          }
+                        },
+                      ),
+                    ),
+                    if (!isSidebarVisible) ...[
+                      const SizedBox(width: 10),
+                      Flexible(
+                        child: _buildBrandWordmark(isDark),
+                      ),
+                    ],
+                    const Spacer(),
+                    _buildAboutLink(isDark),
+                    const SizedBox(width: 4),
+                    _buildIconButton(
+                      icon: isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+                      tooltip: isDark ? 'Switch to light mode' : 'Switch to dark mode',
+                      isDark: isDark,
+                      size: 36,
+                      onPressed: _toggleTheme,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+
+                // Row 2 (directly ABOVE the search box): the Type segmented control and the Depth segmented control, left aligned, gap 12.
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _buildSegmentedTypeSelector(isDark),
+                        const SizedBox(width: 12),
+                        _buildSegmentedDepthSelector(isDark),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+
+                // Row 3: the search box containing ONLY the search icon + input, and the Research button OUTSIDE the box, to its right, same height, gap 12.
+                // Narrow (<700px): same order stacked: search box with the Research button below it full width.
+                if (!isNarrow)
+                  Row(
                     children: [
-                      // Row 1: Nav & actions + search form
-                      Row(
-                        children: [
-                          Builder(
-                            builder: (ctx) => _buildIconButton(
-                              icon: Icons.menu,
-                              tooltip: 'Toggle sidebar',
-                              isDark: isDark,
-                              size: 36,
-                              onPressed: () {
-                                if (isWide) {
-                                  setState(() {
-                                    _isSidebarOpen = !_isSidebarOpen;
-                                  });
-                                } else {
-                                  Scaffold.of(ctx).openDrawer();
-                                }
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          _buildBrandWordmark(isDark),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: _buildTopSearchBar(canSubmit: canSubmit, isDark: isDark),
-                          ),
-                          const SizedBox(width: 8),
-                          _buildAboutLink(isDark),
-                          const SizedBox(width: 4),
-                          _buildIconButton(
-                            icon: isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
-                            tooltip: isDark ? 'Switch to light mode' : 'Switch to dark mode',
-                            isDark: isDark,
-                            size: 36,
-                            onPressed: _toggleTheme,
-                          ),
-                        ],
+                      Expanded(
+                        child: _buildSearchBoxOnly(canSubmit: canSubmit, isDark: isDark),
                       ),
-                      const SizedBox(height: 5),
-                      // Row 2: Segmented selectors aligned cleanly
-                      Row(
-                        children: [
-                          const SizedBox(width: 44),
-                          _buildSegmentedTypeSelector(isDark),
-                          const SizedBox(width: 8),
-                          _buildSegmentedDepthSelector(isDark),
-                        ],
-                      ),
+                      const SizedBox(width: 12),
+                      _buildResearchButton(canSubmit: canSubmit, isDark: isDark, fullWidth: false),
                     ],
                   )
-                : Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Row 1: Nav & actions
-                      Row(
-                        children: [
-                          Builder(
-                            builder: (ctx) => _buildIconButton(
-                              icon: Icons.menu,
-                              tooltip: 'Toggle sidebar',
-                              isDark: isDark,
-                              size: 36,
-                              onPressed: () {
-                                if (isWide) {
-                                  setState(() {
-                                    _isSidebarOpen = !_isSidebarOpen;
-                                  });
-                                } else {
-                                  Scaffold.of(ctx).openDrawer();
-                                }
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(child: _buildBrandWordmark(isDark)),
-                          const SizedBox(width: 4),
-                          _buildAboutLink(isDark),
-                          const SizedBox(width: 4),
-                          _buildIconButton(
-                            icon: isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
-                            tooltip: isDark ? 'Switch to light mode' : 'Switch to dark mode',
-                            isDark: isDark,
-                            size: 36,
-                            onPressed: _toggleTheme,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 5),
-                      // Row 2: Search form taking available width
-                      _buildTopSearchBar(canSubmit: canSubmit, isDark: isDark),
-                      const SizedBox(height: 5),
-                      // Row 3: Segmented selectors in horizontally scrollable row
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            _buildSegmentedTypeSelector(isDark),
-                            const SizedBox(width: 8),
-                            _buildSegmentedDepthSelector(isDark),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
+                else ...[
+                  _buildSearchBoxOnly(canSubmit: canSubmit, isDark: isDark),
+                  const SizedBox(height: 10),
+                  _buildResearchButton(canSubmit: canSubmit, isDark: isDark, fullWidth: true),
+                ],
+              ],
+            ),
           ),
         ),
       ),
@@ -2020,7 +2010,7 @@ class _HomeScreenState extends State<HomeScreen>
   Widget _buildAboutLink(bool isDark) {
     final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
     return Tooltip(
-      message: 'About Multi-Agent Assistant',
+      message: 'About Multi Agent Research Assistant',
       child: TextButton(
         onPressed: () => _showAboutDialog(context),
         style: TextButton.styleFrom(
@@ -2038,6 +2028,8 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _buildBrandWordmark(bool isDark) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final bool isWideText = screenWidth >= 700;
     final acc = isDark ? AppTheme.darkAcc : AppTheme.lightAcc;
     final onAcc = isDark ? AppTheme.darkOnAcc : AppTheme.lightOnAcc;
     final ink = isDark ? AppTheme.darkInk : AppTheme.lightInk;
@@ -2087,12 +2079,12 @@ class _HomeScreenState extends State<HomeScreen>
             const SizedBox(width: 8),
             Flexible(
               child: Text(
-                'Multi Agent',
+                isWideText ? 'Multi Agent Research Assistant' : 'Multi Agent',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 softWrap: false,
                 style: AppTheme.displayFont(
-                  fontSize: 21,
+                  fontSize: 22,
                   color: ink,
                   height: 1.0,
                 ),
@@ -2104,28 +2096,27 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildTopSearchBar({
+  Widget _buildSearchBoxOnly({
     required bool canSubmit,
     required bool isDark,
-    Widget? depthSelector,
   }) {
     final surface = isDark ? AppTheme.darkSurface : AppTheme.lightSurface;
     final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
     final ink = isDark ? AppTheme.darkInk : AppTheme.lightInk;
     final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
-    final acc = isDark ? AppTheme.darkAcc : AppTheme.lightAcc;
-    final onAcc = isDark ? AppTheme.darkOnAcc : AppTheme.lightOnAcc;
 
     return Container(
-      height: 38,
+      height: 40,
       decoration: BoxDecoration(
         color: surface,
         borderRadius: BorderRadius.circular(AppTheme.radiusInput),
         border: Border.all(color: line, width: 1.0),
       ),
-      padding: const EdgeInsets.fromLTRB(10, 2, 3, 2),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(
         children: [
+          Icon(Icons.search, size: 18, color: mute),
+          const SizedBox(width: 8),
           Expanded(
             child: TextField(
               controller: _topicController,
@@ -2165,43 +2156,51 @@ class _HomeScreenState extends State<HomeScreen>
                       setState(() {});
                     },
             ),
-          if (depthSelector != null) ...[
-            const SizedBox(width: 4),
-            depthSelector,
-          ],
-          const SizedBox(width: 4),
-          SizedBox(
-            height: 32,
-            child: FilledButton(
-              onPressed: canSubmit ? _executeAsk : null,
-              style: FilledButton.styleFrom(
-                backgroundColor: acc,
-                foregroundColor: onAcc,
-                disabledBackgroundColor: line,
-                disabledForegroundColor: mute,
-                elevation: 0,
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-                ),
-                textStyle: AppTheme.bodyFont(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              child: _isLoading
-                  ? SizedBox(
-                      width: 12,
-                      height: 12,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(onAcc),
-                      ),
-                    )
-                  : const Text('Research'),
-            ),
-          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildResearchButton({
+    required bool canSubmit,
+    required bool isDark,
+    bool fullWidth = false,
+  }) {
+    final acc = isDark ? AppTheme.darkAcc : AppTheme.lightAcc;
+    final onAcc = isDark ? AppTheme.darkOnAcc : AppTheme.lightOnAcc;
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+    final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
+
+    return SizedBox(
+      height: 40,
+      width: fullWidth ? double.infinity : null,
+      child: FilledButton(
+        onPressed: canSubmit ? _executeAsk : null,
+        style: FilledButton.styleFrom(
+          backgroundColor: acc,
+          foregroundColor: onAcc,
+          disabledBackgroundColor: line,
+          disabledForegroundColor: mute,
+          elevation: 0,
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+          ),
+          textStyle: AppTheme.bodyFont(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        child: _isLoading
+            ? SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(onAcc),
+                ),
+              )
+            : const Text('Research'),
       ),
     );
   }
@@ -2395,7 +2394,7 @@ class _HomeScreenState extends State<HomeScreen>
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 ),
                 child: Text(
-                  'About Multi-Agent Assistant',
+                  'About Multi Agent Research Assistant',
                   style: AppTheme.bodyFont(fontSize: 13, color: mute),
                 ),
               ),
