@@ -1,46 +1,73 @@
-# Virtual Environment
+# Environment & Secrets
+.env
+.env.local
+*.env
+!.env.example
+
+# Python Virtual Environments
 .venv/
 venv/
 env/
 ENV/
 
-# Secrets & Environment variables
-.env
-*.env
-!.env.example
-
-# Python cache & build
+# Python Cache & Bytecode
 __pycache__/
+*.pyc
 *.py[cod]
 *$py.class
 *.so
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
-# Streamlit & IDE
-.streamlit/secrets.toml
+# Node & Frontend Build Artifacts
+node_modules/
+dist/
+build/
+**/build/
+frontend/build/
+mobile_app/build/
+
+# Logs
+*.log
+logs/
+
+# SQLite & Database files
+*.db
+*.sqlite
+*.sqlite3
+research_assistant.db
+
+# Flutter & Dart Build & Cache files
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+frontend/.flutter-plugins*
+
+# Android & Gradle Build Artifacts
+.gradle/
+**/android/.gradle/
+**/android/local.properties
+**/android/app/build/
+*.apk
+*.aab
+
+# IDE & Editor files
 .vscode/
 .idea/
 *.sublime-project
 *.sublime-workspace
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
 
-# Operating System
+# OS Generated files
 .DS_Store
 Thumbs.db
 desktop.ini
-
-# Output reports (optional - keep outputs folder structure but ignore generated files if desired)
-# outputs/*.md

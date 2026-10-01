@@ -1,0 +1,3 @@
+"""
+Agent tasks definitions module
+"""
