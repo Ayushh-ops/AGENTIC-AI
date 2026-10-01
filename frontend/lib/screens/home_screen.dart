@@ -17,9 +17,19 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen>
+    with SingleTickerProviderStateMixin {
   final TextEditingController _topicController = TextEditingController();
   final ApiService _apiService = ApiService();
+
+  bool _showLanding = true;
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnimation;
+  Timer? _pipelineTimer;
+  int _activePipelineIndex = 0;
+  final ScrollController _landingScrollController = ScrollController();
+  final GlobalKey _howItWorksKey = GlobalKey();
+  final GlobalKey _claimsKey = GlobalKey();
 
   bool _isSidebarOpen = true;
   List<HistoryItem> _history = [];
@@ -103,10 +113,32 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _loadPreferences();
     _loadHistory();
+    final bool isRunningInTest =
+        WidgetsBinding.instance.runtimeType.toString().contains('Test');
+
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 1),
+    );
+    _pulseAnimation = Tween<double>(begin: 0.35, end: 1.0).animate(_pulseController);
+
+    if (!isRunningInTest) {
+      _pulseController.repeat(reverse: true);
+      _pipelineTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
+        if (mounted && _showLanding) {
+          setState(() {
+            _activePipelineIndex = (_activePipelineIndex + 1) % 3;
+          });
+        }
+      });
+    }
   }
 
   @override
   void dispose() {
+    _pulseController.dispose();
+    _pipelineTimer?.cancel();
+    _landingScrollController.dispose();
     _loadingTimer?.cancel();
     _topicController.dispose();
     super.dispose();
@@ -205,26 +237,33 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _confirmClearAllHistory() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(
           'Clear all history?',
-          style: AppTheme.displayFont(fontSize: 18, fontWeight: FontWeight.bold),
+          style: AppTheme.displayFont(fontSize: 22),
         ),
-        content: const Text(
+        content: Text(
           'This will permanently delete all saved research queries and summaries.',
-          style: TextStyle(fontSize: 14),
+          style: AppTheme.bodyFont(fontSize: 14),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel'),
+            child: Text(
+              'Cancel',
+              style: AppTheme.bodyFont(
+                fontSize: 14,
+                color: isDark ? AppTheme.darkMuted : AppTheme.lightMuted,
+              ),
+            ),
           ),
           FilledButton(
             style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
-              foregroundColor: Theme.of(context).colorScheme.onError,
+              backgroundColor: isDark ? AppTheme.darkBad : AppTheme.lightBad,
+              foregroundColor: Colors.white,
             ),
             onPressed: () {
               Navigator.of(ctx).pop();
@@ -356,218 +395,209 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showAboutDialog(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final ink = isDark ? AppTheme.darkInk : AppTheme.lightInk;
+    final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+    final surface = isDark ? AppTheme.darkSurface : AppTheme.lightSurface;
+    final acc = isDark ? AppTheme.darkAcc : AppTheme.lightAcc;
+    final onAcc = isDark ? AppTheme.darkOnAcc : AppTheme.lightOnAcc;
 
     showDialog(
       context: context,
       builder: (BuildContext ctx) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
-          ),
-          title: Row(
-            children: [
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  gradient: AppTheme.primaryGradient,
-                  borderRadius: BorderRadius.circular(8),
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 560, maxHeight: 680),
+            padding: const EdgeInsets.all(28),
+            decoration: BoxDecoration(
+              color: surface,
+              border: Border.all(color: line, width: 1.0),
+              borderRadius: BorderRadius.circular(AppTheme.radiusDialog),
+              boxShadow: [
+                isDark ? AppTheme.darkShadow : AppTheme.lightShadow,
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'About Multi-Agent Assistant',
+                          style: AppTheme.displayFont(
+                            fontSize: 32,
+                            color: ink,
+                            height: 1.1,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Text(
+                          'A research assistant that searches the live web, cross-checks each claim against independent sources, and writes a cited report.',
+                          style: AppTheme.bodyFont(
+                            fontSize: 15,
+                            color: mute,
+                            height: 1.5,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        Text(
+                          'THE 3 AUTONOMOUS AGENTS',
+                          style: AppTheme.monoFont(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.8,
+                            color: mute,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        _buildAgentTile(
+                          number: '01',
+                          name: 'Researcher:',
+                          role:
+                              'Deconstructs the topic and gathers relevant live web sources via targeted search queries.',
+                          isDark: isDark,
+                        ),
+                        _buildAgentTile(
+                          number: '02',
+                          name: 'Fact-Checker:',
+                          role:
+                              'Audits sources, extracts factual claims, and evaluates multi-source corroboration with strict quote validation.',
+                          isDark: isDark,
+                        ),
+                        _buildAgentTile(
+                          number: '03',
+                          name: 'Synthesizer:',
+                          role:
+                              'Compiles verified claims and cited sources into a transparent, structured report.',
+                          isDark: isDark,
+                        ),
+                        const SizedBox(height: 20),
+                        Text(
+                          'RESEARCH DEPTH',
+                          style: AppTheme.monoFont(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.8,
+                            color: mute,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: isDark ? AppTheme.darkBg : AppTheme.lightBg,
+                            borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                            border: Border.all(color: line, width: 1.0),
+                          ),
+                          child: Text(
+                            'Quick provides a fast single-search summary, Standard balances speed and corroboration, while Deep checks more sources but takes longer and uses more API calls.',
+                            style: AppTheme.bodyFont(
+                              fontSize: 13.5,
+                              color: mute,
+                              height: 1.45,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        Text(
+                          'Reports should still be read critically. Verify key evidence before taking critical decisions.',
+                          style: AppTheme.bodyFont(
+                            fontSize: 13,
+                            fontStyle: FontStyle.italic,
+                            color: mute,
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-                child: const Icon(Icons.hub_outlined, color: Colors.white, size: 18),
-              ),
-              const SizedBox(width: 10),
-              Text(
-                'About Multi-Agent Assistant',
-                style: AppTheme.displayFont(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-          content: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 540),
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'What it does',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                      color: colorScheme.primary,
+                const SizedBox(height: 20),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: acc,
+                      foregroundColor: onAcc,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Executes live web search, cross-checks claims across independent sources, and synthesizes cited reports with verification status.',
-                    style: TextStyle(fontSize: 13, height: 1.4),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'The 3 Autonomous Agents',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                      color: colorScheme.primary,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  _buildAgentCard(
-                    name: 'Researcher:',
-                    role:
-                        'Deconstructs the topic and gathers relevant live web sources via targeted search queries.',
-                    icon: Icons.travel_explore,
-                    color: colorScheme.primary,
-                    colorScheme: colorScheme,
-                  ),
-                  const SizedBox(height: 8),
-                  _buildAgentCard(
-                    name: 'Fact-Checker:',
-                    role:
-                        'Audits sources, extracts factual claims, and evaluates multi-source corroboration with strict quote validation.',
-                    icon: Icons.fact_check_outlined,
-                    color: colorScheme.secondary,
-                    colorScheme: colorScheme,
-                  ),
-                  const SizedBox(height: 8),
-                  _buildAgentCard(
-                    name: 'Synthesizer:',
-                    role:
-                        'Compiles verified claims and cited sources into a transparent, structured report.',
-                    icon: Icons.auto_awesome,
-                    color: colorScheme.tertiary,
-                    colorScheme: colorScheme,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Research Depth',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                      color: colorScheme.primary,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-                      borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-                      border: Border.all(
-                        color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: Text(
+                      'Close',
+                      style: AppTheme.bodyFont(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                    child: const Text(
-                      'Quick provides a fast single-search summary, Standard balances speed and corroboration, while Deep checks more sources but takes longer and uses more API calls.',
-                      style: TextStyle(fontSize: 13, height: 1.4),
-                    ),
                   ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Claim verification statuses',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                      color: colorScheme.primary,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _buildStatusChip('supported'),
-                      _buildStatusChip('single_source'),
-                      _buildStatusChip('unsupported'),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Limitations',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                      color: colorScheme.primary,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'AI models may misinterpret subtle nuances or encounter biased sources. Synthesized reports provide an evidence base and should always be read critically.',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontStyle: FontStyle.italic,
-                      color: colorScheme.onSurfaceVariant,
-                      height: 1.4,
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Close'),
-            ),
-          ],
         );
       },
     );
   }
 
-  Widget _buildAgentCard({
+  Widget _buildAgentTile({
+    required String number,
     required String name,
     required String role,
-    required IconData icon,
-    required Color color,
-    required ColorScheme colorScheme,
+    required bool isDark,
   }) {
+    final ink = isDark ? AppTheme.darkInk : AppTheme.lightInk;
+    final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
+    final at = isDark ? AppTheme.darkAt : AppTheme.lightAt;
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(vertical: 10),
       decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-        border: Border.all(
-          color: color.withValues(alpha: 0.3),
-          width: 1,
+        border: Border(
+          top: BorderSide(color: line, width: 1.0),
         ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: color.withValues(alpha: 0.15),
+          Text(
+            number,
+            style: AppTheme.monoFont(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: at,
             ),
-            child: Icon(icon, color: color, size: 18),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   name,
-                  style: TextStyle(
+                  style: AppTheme.bodyFont(
                     fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                    color: color,
+                    fontSize: 14,
+                    color: ink,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   role,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: colorScheme.onSurfaceVariant,
-                    height: 1.35,
+                  style: AppTheme.bodyFont(
+                    fontSize: 13,
+                    color: mute,
+                    height: 1.4,
                   ),
                 ),
               ],
@@ -588,11 +618,15 @@ class _HomeScreenState extends State<HomeScreen> {
     } else if (diff.inMinutes < 60) {
       return '${diff.inMinutes}m ago';
     } else if (diff.inHours < 24) {
-      return '${diff.inHours}h ago';
+      final hour = dt.hour == 0 ? 12 : (dt.hour > 12 ? dt.hour - 12 : dt.hour);
+      final ampm = dt.hour >= 12 ? 'p' : 'a';
+      final min = dt.minute.toString().padLeft(2, '0');
+      return '$hour:$min$ampm';
     } else if (diff.inDays == 1) {
       return 'yesterday';
     } else if (diff.inDays < 7) {
-      return '${diff.inDays}d ago';
+      const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      return days[dt.weekday - 1];
     } else {
       return '${dt.month}/${dt.day}';
     }
@@ -616,54 +650,977 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bool isWide = MediaQuery.of(context).size.width >= 800;
+    if (_showLanding) {
+      return _buildLandingScreen(context);
+    }
+    return _buildWorkspaceScreen(context);
+  }
+
+  void _scrollToSection(GlobalKey key) {
+    final ctx = key.currentContext;
+    if (ctx != null) {
+      Scrollable.ensureVisible(
+        ctx,
+        duration: const Duration(milliseconds: 400),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
+  Widget _buildLandingScreen(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final double contentPad = (screenWidth * 0.04).clamp(16.0, 32.0);
+
+    return Scaffold(
+      body: DynamicBackground(
+        isLoading: false,
+        child: Column(
+          children: [
+            _buildLandingTopBar(context, isDark, screenWidth),
+            Expanded(
+              child: SingleChildScrollView(
+                controller: _landingScrollController,
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 1120),
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: contentPad),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _buildLandingHero(context, isDark, screenWidth, screenHeight),
+                          _buildLandingHowItWorks(context, isDark, screenWidth),
+                          _buildLandingHonestByDesign(context, isDark, screenWidth),
+                          _buildLandingCta(context, isDark, screenWidth),
+                          _buildLandingFooter(context, isDark, screenWidth),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLandingTopBar(BuildContext context, bool isDark, double screenWidth) {
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+    final bg = isDark ? AppTheme.darkBg : AppTheme.lightBg;
+    final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
+    final acc = isDark ? AppTheme.darkAcc : AppTheme.lightAcc;
+    final onAcc = isDark ? AppTheme.darkOnAcc : AppTheme.lightOnAcc;
+    final double hPad = (screenWidth * 0.04).clamp(16.0, 48.0);
+    final bool showTextLinks = screenWidth >= 860;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: bg.withValues(alpha: 0.85),
+        border: Border(bottom: BorderSide(color: line, width: 1.0)),
+      ),
+      padding: EdgeInsets.symmetric(vertical: 14, horizontal: hPad),
+      child: SafeArea(
+        bottom: false,
+        child: Row(
+          children: [
+            Expanded(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: _buildBrandWordmark(isDark),
+              ),
+            ),
+            const SizedBox(width: 8),
+            if (showTextLinks) ...[
+              TextButton(
+                onPressed: () => _scrollToSection(_howItWorksKey),
+                style: TextButton.styleFrom(
+                  foregroundColor: mute,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                ),
+                child: Text(
+                  'How it works',
+                  style: AppTheme.bodyFont(fontSize: 14, color: mute),
+                ),
+              ),
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: () => _scrollToSection(_claimsKey),
+                style: TextButton.styleFrom(
+                  foregroundColor: mute,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                ),
+                child: Text(
+                  'Claims',
+                  style: AppTheme.bodyFont(fontSize: 14, color: mute),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Tooltip(
+                message: 'About Multi-Agent Assistant',
+                child: TextButton(
+                  onPressed: () => _showAboutDialog(context),
+                  style: TextButton.styleFrom(
+                    foregroundColor: mute,
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  ),
+                  child: Text(
+                    'About',
+                    style: AppTheme.bodyFont(fontSize: 14, color: mute),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+            ],
+            _buildIconButton(
+              icon: isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+              tooltip: isDark ? 'Switch to light mode' : 'Switch to dark mode',
+              isDark: isDark,
+              size: 38,
+              onPressed: _toggleTheme,
+            ),
+            const SizedBox(width: 12),
+            FilledButton(
+              onPressed: () => setState(() => _showLanding = false),
+              style: FilledButton.styleFrom(
+                backgroundColor: acc,
+                foregroundColor: onAcc,
+                minimumSize: const Size(0, 42),
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                ),
+              ),
+              child: Text(
+                'Open app',
+                style: AppTheme.bodyFont(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLandingHero(
+    BuildContext context,
+    bool isDark,
+    double screenWidth,
+    double screenHeight,
+  ) {
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+    final surface = isDark ? AppTheme.darkSurface : AppTheme.lightSurface;
+    final ink = isDark ? AppTheme.darkInk : AppTheme.lightInk;
+    final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
+    final at = isDark ? AppTheme.darkAt : AppTheme.lightAt;
+    final acc = isDark ? AppTheme.darkAcc : AppTheme.lightAcc;
+    final onAcc = isDark ? AppTheme.darkOnAcc : AppTheme.lightOnAcc;
+
+    final double topPad = (screenHeight * 0.11).clamp(56.0, 120.0);
+    final double h1Size = (screenWidth * 0.084).clamp(46.0, 104.0);
+    final bool canSubmit = !_isLoading && _topicController.text.trim().isNotEmpty;
+
+    return Padding(
+      padding: EdgeInsets.only(top: topPad, bottom: 40),
+      child: Column(
+        children: [
+          // Eyebrow pill
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            decoration: BoxDecoration(
+              color: surface,
+              borderRadius: BorderRadius.circular(AppTheme.radiusPill),
+              border: Border.all(color: line, width: 1.0),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FadeTransition(
+                  opacity: _pulseAnimation,
+                  child: Container(
+                    width: 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      color: at,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    'Live search · cross-checked claims · cited reports',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTheme.bodyFont(fontSize: 13, color: mute),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 22),
+
+          // H1 Instrument Serif
+          RichText(
+            textAlign: TextAlign.center,
+            text: TextSpan(
+              style: AppTheme.displayFont(
+                fontSize: h1Size,
+                color: ink,
+                height: 0.98,
+                letterSpacing: -0.02 * h1Size,
+              ),
+              children: [
+                const TextSpan(text: 'Research that shows '),
+                TextSpan(
+                  text: 'its work.',
+                  style: TextStyle(
+                    color: at,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 22),
+
+          // Lead paragraph
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 600),
+            child: Text(
+              'Ask anything. Multi Agent Research Assistant searches the live web, checks each claim against independent sources, and labels how well each one is supported.',
+              textAlign: TextAlign.center,
+              style: AppTheme.bodyFont(
+                fontSize: 18,
+                color: mute,
+                height: 1.55,
+              ),
+            ),
+          ),
+          const SizedBox(height: 36),
+
+          // Ask box
+          Container(
+            constraints: const BoxConstraints(maxWidth: 760),
+            decoration: BoxDecoration(
+              color: surface,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: line, width: 1.0),
+              boxShadow: [isDark ? AppTheme.darkShadow : AppTheme.lightShadow],
+            ),
+            padding: const EdgeInsets.all(10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Input row
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _topicController,
+                        enabled: !_isLoading,
+                        style: AppTheme.bodyFont(fontSize: 18, color: ink),
+                        textInputAction: TextInputAction.search,
+                        decoration: InputDecoration(
+                          hintText: 'Ask or enter a research topic',
+                          hintStyle: AppTheme.bodyFont(fontSize: 18, color: mute),
+                          border: InputBorder.none,
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        ),
+                        onChanged: (_) => setState(() {}),
+                        onSubmitted: (_) {
+                          if (canSubmit) {
+                            setState(() => _showLanding = false);
+                            _executeAsk();
+                          }
+                        },
+                      ),
+                    ),
+                    if (_topicController.text.isNotEmpty)
+                      IconButton(
+                        icon: Icon(Icons.clear, size: 16, color: mute),
+                        onPressed: () {
+                          _topicController.clear();
+                          setState(() {});
+                        },
+                      ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: canSubmit
+                          ? () {
+                              setState(() => _showLanding = false);
+                              _executeAsk();
+                            }
+                          : null,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: acc,
+                        foregroundColor: onAcc,
+                        disabledBackgroundColor: line,
+                        disabledForegroundColor: mute,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(horizontal: 22),
+                        minimumSize: const Size(0, 44),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                        ),
+                      ),
+                      child: Text(
+                        'Research',
+                        style: AppTheme.bodyFont(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                // Chips row
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 6, 8, 4),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _buildSegmentedTypeSelector(isDark),
+                      _buildSegmentedDepthSelector(isDark),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+
+          // Example chips
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _buildLandingExampleChip('Quantum computing in 2026', isDark),
+              _buildLandingExampleChip('Latest on CRISPR', isDark),
+              _buildLandingExampleChip('How does RAG work?', isDark),
+            ],
+          ),
+
+          // Pipeline row
+          Container(
+            constraints: const BoxConstraints(maxWidth: 700),
+            margin: const EdgeInsets.only(top: 56),
+            child: Row(
+              children: [
+                Expanded(child: _buildPipelineStep(0, 'Search the web', isDark)),
+                Expanded(child: _buildPipelineStep(1, 'Cross-check claims', isDark)),
+                Expanded(child: _buildPipelineStep(2, 'Write the report', isDark)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLandingExampleChip(String text, bool isDark) {
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+    final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
+
+    return InkWell(
+      onTap: () {
+        _topicController.text = text;
+        setState(() {});
+      },
+      borderRadius: BorderRadius.circular(AppTheme.radiusPill),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(AppTheme.radiusPill),
+          border: Border.all(color: line, width: 1.0),
+        ),
+        child: Text(
+          text,
+          style: AppTheme.bodyFont(fontSize: 14, color: mute),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPipelineStep(int index, String label, bool isDark) {
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+    final bg = isDark ? AppTheme.darkBg : AppTheme.lightBg;
+    final at = isDark ? AppTheme.darkAt : AppTheme.lightAt;
+    final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
+    final bool isActive = _activePipelineIndex == index;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Container(
+                height: 2,
+                color: index == 0 ? Colors.transparent : line,
+              ),
+            ),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              width: 14,
+              height: 14,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: isActive ? at : bg,
+                border: Border.all(
+                  color: isActive ? at : line,
+                  width: 2.0,
+                ),
+              ),
+            ),
+            Expanded(
+              child: Container(
+                height: 2,
+                color: index == 2 ? Colors.transparent : line,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Text(
+          label,
+          textAlign: TextAlign.center,
+          style: AppTheme.bodyFont(
+            fontSize: 13,
+            color: mute,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLandingHowItWorks(
+    BuildContext context,
+    bool isDark,
+    double screenWidth,
+  ) {
+    final at = isDark ? AppTheme.darkAt : AppTheme.lightAt;
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+    final ink = isDark ? AppTheme.darkInk : AppTheme.lightInk;
+    final bool isWide = screenWidth >= 860;
+    final h2Size = (screenWidth * 0.05).clamp(34.0, 56.0);
+
+    return Container(
+      key: _howItWorksKey,
+      padding: const EdgeInsets.only(top: 84),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'HOW IT WORKS',
+            style: AppTheme.monoFont(
+              fontSize: 13,
+              color: at,
+              letterSpacing: 0.8,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 10),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 760),
+            child: Text(
+              'Three agents, one rule: no claim without a source.',
+              style: AppTheme.displayFont(
+                fontSize: h2Size,
+                color: ink,
+                height: 1.04,
+              ),
+            ),
+          ),
+          const SizedBox(height: 36),
+          Container(
+            decoration: BoxDecoration(
+              border: Border(top: BorderSide(color: line, width: 1.0)),
+            ),
+            child: Column(
+              children: [
+                _buildHowStepRow(
+                  number: '1',
+                  title: 'Researcher',
+                  description:
+                      'Searches the live web for your topic and gathers sources, skipping known low-quality and social sites.',
+                  isWide: isWide,
+                  isDark: isDark,
+                ),
+                _buildHowStepRow(
+                  number: '2',
+                  title: 'Fact-Checker',
+                  description:
+                      'Extracts claims, looks for the same fact in other independent domains, and keeps only quotes it can find in the source text.',
+                  isWide: isWide,
+                  isDark: isDark,
+                ),
+                _buildHowStepRow(
+                  number: '3',
+                  title: 'Synthesizer',
+                  description:
+                      'Writes a short report. Its references list only sources that back a claim, and weak claims are never labelled corroborated.',
+                  isWide: isWide,
+                  isDark: isDark,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHowStepRow({
+    required String number,
+    required String title,
+    required String description,
+    required bool isWide,
+    required bool isDark,
+  }) {
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+    final at = isDark ? AppTheme.darkAt : AppTheme.lightAt;
+    final ink = isDark ? AppTheme.darkInk : AppTheme.lightInk;
+    final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 28),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: line, width: 1.0)),
+      ),
+      child: isWide
+          ? Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                SizedBox(
+                  width: 90,
+                  child: Text(
+                    number,
+                    style: AppTheme.displayFont(
+                      fontSize: 56,
+                      color: at,
+                      height: 1.0,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 24),
+                Expanded(
+                  flex: 10,
+                  child: Text(
+                    title,
+                    style: AppTheme.bodyFont(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w600,
+                      color: ink,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 24),
+                Expanded(
+                  flex: 13,
+                  child: Text(
+                    description,
+                    style: AppTheme.bodyFont(
+                      fontSize: 16,
+                      color: mute,
+                      height: 1.55,
+                    ),
+                  ),
+                ),
+              ],
+            )
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: 56,
+                  child: Text(
+                    number,
+                    style: AppTheme.displayFont(
+                      fontSize: 44,
+                      color: at,
+                      height: 1.0,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: AppTheme.bodyFont(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w600,
+                          color: ink,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        description,
+                        style: AppTheme.bodyFont(
+                          fontSize: 15,
+                          color: mute,
+                          height: 1.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+    );
+  }
+
+  Widget _buildLandingHonestByDesign(
+    BuildContext context,
+    bool isDark,
+    double screenWidth,
+  ) {
+    final at = isDark ? AppTheme.darkAt : AppTheme.lightAt;
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+    final surface = isDark ? AppTheme.darkSurface : AppTheme.lightSurface;
+    final ink = isDark ? AppTheme.darkInk : AppTheme.lightInk;
+    final ok = isDark ? AppTheme.darkOk : AppTheme.lightOk;
+    final warn = isDark ? AppTheme.darkWarn : AppTheme.lightWarn;
+    final bad = isDark ? AppTheme.darkBad : AppTheme.lightBad;
+    final h2Size = (screenWidth * 0.05).clamp(34.0, 56.0);
+    final bool isStacked = screenWidth < 860;
+
+    return Container(
+      key: _claimsKey,
+      padding: const EdgeInsets.only(top: 84),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'HONEST BY DESIGN',
+            style: AppTheme.monoFont(
+              fontSize: 13,
+              color: at,
+              letterSpacing: 0.8,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 10),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 760),
+            child: Text(
+              'Every claim carries its own label.',
+              style: AppTheme.displayFont(
+                fontSize: h2Size,
+                color: ink,
+                height: 1.04,
+              ),
+            ),
+          ),
+          const SizedBox(height: 34),
+          Container(
+            decoration: BoxDecoration(
+              color: surface,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: line, width: 1.0),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: isStacked
+                ? Column(
+                    children: [
+                      _buildLegendCell(
+                        label: 'Corroborated',
+                        color: ok,
+                        marker: Container(
+                          width: 7,
+                          height: 7,
+                          decoration: BoxDecoration(
+                            color: ok,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        description: 'Two or more independent domains state the same fact.',
+                        hasBorder: true,
+                        isDark: isDark,
+                        isBottomBorder: true,
+                      ),
+                      _buildLegendCell(
+                        label: 'Single source',
+                        color: warn,
+                        marker: Transform.rotate(
+                          angle: 0.785398,
+                          child: Container(
+                            width: 7,
+                            height: 7,
+                            color: warn,
+                          ),
+                        ),
+                        description: 'Only one source found. Treat it as a lead, not a fact.',
+                        hasBorder: true,
+                        isDark: isDark,
+                        isBottomBorder: true,
+                      ),
+                      _buildLegendCell(
+                        label: 'Unsupported',
+                        color: bad,
+                        marker: Container(
+                          width: 7,
+                          height: 7,
+                          color: bad,
+                        ),
+                        description: 'No verified source backed it up. Treat it as unconfirmed.',
+                        hasBorder: false,
+                        isDark: isDark,
+                        isBottomBorder: false,
+                      ),
+                    ],
+                  )
+                : IntrinsicHeight(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Expanded(
+                          child: _buildLegendCell(
+                            label: 'Corroborated',
+                            color: ok,
+                            marker: Container(
+                              width: 7,
+                              height: 7,
+                              decoration: BoxDecoration(
+                                color: ok,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            description: 'Two or more independent domains state the same fact.',
+                            hasBorder: true,
+                            isDark: isDark,
+                            isBottomBorder: false,
+                          ),
+                        ),
+                        Expanded(
+                          child: _buildLegendCell(
+                            label: 'Single source',
+                            color: warn,
+                            marker: Transform.rotate(
+                              angle: 0.785398,
+                              child: Container(
+                                width: 7,
+                                height: 7,
+                                color: warn,
+                              ),
+                            ),
+                            description: 'Only one source found. Treat it as a lead, not a fact.',
+                            hasBorder: true,
+                            isDark: isDark,
+                            isBottomBorder: false,
+                          ),
+                        ),
+                        Expanded(
+                          child: _buildLegendCell(
+                            label: 'Unsupported',
+                            color: bad,
+                            marker: Container(
+                              width: 7,
+                              height: 7,
+                              color: bad,
+                            ),
+                            description: 'No verified source backed it up. Treat it as unconfirmed.',
+                            hasBorder: false,
+                            isDark: isDark,
+                            isBottomBorder: false,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLegendCell({
+    required String label,
+    required Color color,
+    required Widget marker,
+    required String description,
+    required bool hasBorder,
+    required bool isDark,
+    required bool isBottomBorder,
+  }) {
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+    final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
+
+    return Container(
+      padding: const EdgeInsets.all(26),
+      decoration: BoxDecoration(
+        border: hasBorder
+            ? (isBottomBorder
+                ? Border(bottom: BorderSide(color: line, width: 1.0))
+                : Border(right: BorderSide(color: line, width: 1.0)))
+            : null,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(AppTheme.radiusPill),
+              border: Border.all(color: color, width: 1.0),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                marker,
+                const SizedBox(width: 7),
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTheme.monoFont(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: color,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            description,
+            style: AppTheme.bodyFont(
+              fontSize: 15,
+              color: mute,
+              height: 1.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLandingCta(BuildContext context, bool isDark, double screenWidth) {
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+    final surface = isDark ? AppTheme.darkSurface : AppTheme.lightSurface;
+    final ink = isDark ? AppTheme.darkInk : AppTheme.lightInk;
+    final acc = isDark ? AppTheme.darkAcc : AppTheme.lightAcc;
+    final onAcc = isDark ? AppTheme.darkOnAcc : AppTheme.lightOnAcc;
+    final h2Size = (screenWidth * 0.04).clamp(30.0, 44.0);
+
+    return Container(
+      margin: const EdgeInsets.only(top: 90),
+      padding: const EdgeInsets.symmetric(vertical: 64, horizontal: 24),
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: line, width: 1.0),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 640),
+            child: Text(
+              'Ask your first question.',
+              textAlign: TextAlign.center,
+              style: AppTheme.displayFont(
+                fontSize: h2Size,
+                color: ink,
+                height: 1.1,
+              ),
+            ),
+          ),
+          const SizedBox(height: 22),
+          FilledButton(
+            onPressed: () => setState(() => _showLanding = false),
+            style: FilledButton.styleFrom(
+              backgroundColor: acc,
+              foregroundColor: onAcc,
+              minimumSize: const Size(0, 52),
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+              ),
+            ),
+            child: Text(
+              'Open app',
+              style: AppTheme.bodyFont(
+                fontSize: 17,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLandingFooter(BuildContext context, bool isDark, double screenWidth) {
+    final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 48, bottom: 40),
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 16,
+        runSpacing: 10,
+        children: [
+          Text(
+            'Multi Agent Research Assistant',
+            style: AppTheme.bodyFont(
+              fontSize: 14,
+              color: mute,
+            ),
+          ),
+          Text(
+            'Reports should still be read critically.',
+            style: AppTheme.bodyFont(
+              fontSize: 14,
+              color: mute,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWorkspaceScreen(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final bool isWide = screenWidth >= 860;
     final bool canSubmit =
         !_isLoading && _topicController.text.trim().isNotEmpty;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    final appBar = AppBar(
-      leading: Builder(
-        builder: (ctx) => IconButton(
-          icon: const Icon(Icons.menu),
-          tooltip: 'Toggle sidebar',
-          onPressed: () {
-            if (isWide) {
-              setState(() {
-                _isSidebarOpen = !_isSidebarOpen;
-              });
-            } else {
-              Scaffold.of(ctx).openDrawer();
-            }
-          },
-        ),
-      ),
-      title: Text(
-        'Multi-Agent Research Assistant',
-        style: AppTheme.displayFont(
-          fontSize: 17,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-      centerTitle: false,
-      actions: [
-        IconButton(
-          icon: const Icon(Icons.info_outline),
-          tooltip: 'About Multi-Agent Assistant',
-          onPressed: () => _showAboutDialog(context),
-        ),
-        IconButton(
-          icon: Icon(
-            isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
-          ),
-          tooltip: isDark ? 'Switch to light mode' : 'Switch to dark mode',
-          onPressed: _toggleTheme,
-        ),
-      ],
+    final appBar = _buildTopBar(
+      context: context,
+      isWide: isWide,
+      canSubmit: canSubmit,
+      isDark: isDark,
     );
 
     return Scaffold(
       appBar: appBar,
-      drawer: isWide ? null : Drawer(child: _buildSidebarContent(isDrawer: true)),
+      drawer: isWide
+          ? null
+          : Drawer(
+              width: 288,
+              backgroundColor: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
+              shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+              child: _buildSidebarContent(isDrawer: true),
+            ),
       body: DynamicBackground(
         isLoading: _isLoading,
         child: isWide
@@ -672,7 +1629,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 220),
                     curve: Curves.easeInOut,
-                    width: _isSidebarOpen ? 290 : 0,
+                    width: _isSidebarOpen ? 288 : 0,
                     child: _isSidebarOpen
                         ? _buildSidebarContent(isDrawer: false)
                         : const SizedBox.shrink(),
@@ -681,7 +1638,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     VerticalDivider(
                       width: 1,
                       thickness: 1,
-                      color: Theme.of(context).dividerColor,
+                      color: isDark ? AppTheme.darkLines : AppTheme.lightLines,
                     ),
                   Expanded(
                     child: _buildMainContent(canSubmit: canSubmit, isWide: true),
@@ -694,60 +1651,34 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildSidebarContent({required bool isDrawer}) {
-    final colorScheme = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
+    final bad = isDark ? AppTheme.darkBad : AppTheme.lightBad;
 
     return Material(
-      color: colorScheme.surfaceContainerLow,
+      color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
       child: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Header: App logo mark + short name
+            // Header: App logo mark + close button on drawer
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
               child: Row(
                 children: [
-                  Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      gradient: isDark
-                          ? AppTheme.primaryGradientDark
-                          : AppTheme.primaryGradient,
-                      borderRadius: BorderRadius.circular(8),
-                      boxShadow: [
-                        BoxShadow(
-                          color: colorScheme.primary.withValues(alpha: 0.25),
-                          blurRadius: 8,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
+                  Expanded(child: _buildBrandWordmark(isDark)),
+                  if (isDrawer)
+                    _buildIconButton(
+                      icon: Icons.chevron_left,
+                      tooltip: 'Close sidebar',
+                      isDark: isDark,
+                      onPressed: () => Navigator.of(context).pop(),
                     ),
-                    child: const Icon(
-                      Icons.auto_awesome,
-                      color: Colors.white,
-                      size: 18,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Research Assistant',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTheme.displayFont(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: colorScheme.onSurface,
-                      ),
-                    ),
-                  ),
                 ],
               ),
             ),
 
-            // Top: Full-width New research button
+            // Top: Full-width New research button (.btn)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
               child: NewResearchButton(onPressed: _startNewResearch),
@@ -755,31 +1686,32 @@ class _HomeScreenState extends State<HomeScreen> {
 
             // Recent Header with Clear all action
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
               child: Row(
                 children: [
                   Text(
                     'RECENT',
-                    style: TextStyle(
+                    style: AppTheme.monoFont(
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
-                      color: colorScheme.onSurfaceVariant,
-                      letterSpacing: 0.8,
+                      letterSpacing: 0.08,
+                      color: mute,
                     ),
                   ),
                   const Spacer(),
                   if (_history.isNotEmpty)
-                    TextButton(
-                      style: TextButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                      ),
-                      onPressed: _confirmClearAllHistory,
-                      child: Text(
-                        'Clear all',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: colorScheme.error,
+                    InkWell(
+                      onTap: _confirmClearAllHistory,
+                      borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        child: Text(
+                          'Clear all',
+                          style: AppTheme.monoFont(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: bad,
+                          ),
                         ),
                       ),
                     ),
@@ -798,7 +1730,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildGroupedHistoryList(bool isWide) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     if (_history.isEmpty) {
       return Center(
@@ -808,16 +1740,16 @@ class _HomeScreenState extends State<HomeScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
-                Icons.history_toggle_off,
-                size: 32,
-                color: colorScheme.outlineVariant,
+                Icons.history,
+                size: 26,
+                color: isDark ? AppTheme.darkMuted : AppTheme.lightMuted,
               ),
               const SizedBox(height: 8),
               Text(
                 'No research history yet',
-                style: TextStyle(
+                style: AppTheme.bodyFont(
                   fontSize: 13,
-                  color: colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                  color: isDark ? AppTheme.darkMuted : AppTheme.lightMuted,
                 ),
               ),
             ],
@@ -842,7 +1774,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     return ListView(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       children: [
         if (todayItems.isNotEmpty) ...[
           _buildGroupHeader('Today'),
@@ -885,14 +1817,16 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildGroupHeader(String title) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      padding: const EdgeInsets.fromLTRB(8, 14, 8, 6),
       child: Text(
-        title,
-        style: TextStyle(
-          fontSize: 11,
+        title.toUpperCase(),
+        style: AppTheme.monoFont(
+          fontSize: 12,
           fontWeight: FontWeight.w600,
-          color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.8),
+          letterSpacing: 0.08,
+          color: isDark ? AppTheme.darkMuted : AppTheme.lightMuted,
         ),
       ),
     );
@@ -912,78 +1846,557 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  PreferredSizeWidget _buildTopBar({
+    required BuildContext context,
+    required bool isWide,
+    required bool canSubmit,
+    required bool isDark,
+  }) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final bool isTopBarWide = screenWidth >= 700;
+
+    return PreferredSize(
+      preferredSize: Size.fromHeight(isTopBarWide ? 88 : 134),
+      child: Container(
+        decoration: BoxDecoration(
+          color: isDark ? AppTheme.darkBg : AppTheme.lightBg,
+          border: Border(
+            bottom: BorderSide(
+              color: isDark ? AppTheme.darkLines : AppTheme.lightLines,
+              width: 1.0,
+            ),
+          ),
+        ),
+        child: SafeArea(
+          bottom: false,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            child: isTopBarWide
+                ? Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Row 1: Nav & actions + search form
+                      Row(
+                        children: [
+                          Builder(
+                            builder: (ctx) => _buildIconButton(
+                              icon: Icons.menu,
+                              tooltip: 'Toggle sidebar',
+                              isDark: isDark,
+                              size: 36,
+                              onPressed: () {
+                                if (isWide) {
+                                  setState(() {
+                                    _isSidebarOpen = !_isSidebarOpen;
+                                  });
+                                } else {
+                                  Scaffold.of(ctx).openDrawer();
+                                }
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          _buildBrandWordmark(isDark),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _buildTopSearchBar(canSubmit: canSubmit, isDark: isDark),
+                          ),
+                          const SizedBox(width: 8),
+                          _buildAboutLink(isDark),
+                          const SizedBox(width: 4),
+                          _buildIconButton(
+                            icon: isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+                            tooltip: isDark ? 'Switch to light mode' : 'Switch to dark mode',
+                            isDark: isDark,
+                            size: 36,
+                            onPressed: _toggleTheme,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 5),
+                      // Row 2: Segmented selectors aligned cleanly
+                      Row(
+                        children: [
+                          const SizedBox(width: 44),
+                          _buildSegmentedTypeSelector(isDark),
+                          const SizedBox(width: 8),
+                          _buildSegmentedDepthSelector(isDark),
+                        ],
+                      ),
+                    ],
+                  )
+                : Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Row 1: Nav & actions
+                      Row(
+                        children: [
+                          Builder(
+                            builder: (ctx) => _buildIconButton(
+                              icon: Icons.menu,
+                              tooltip: 'Toggle sidebar',
+                              isDark: isDark,
+                              size: 36,
+                              onPressed: () {
+                                if (isWide) {
+                                  setState(() {
+                                    _isSidebarOpen = !_isSidebarOpen;
+                                  });
+                                } else {
+                                  Scaffold.of(ctx).openDrawer();
+                                }
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(child: _buildBrandWordmark(isDark)),
+                          const SizedBox(width: 4),
+                          _buildAboutLink(isDark),
+                          const SizedBox(width: 4),
+                          _buildIconButton(
+                            icon: isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+                            tooltip: isDark ? 'Switch to light mode' : 'Switch to dark mode',
+                            isDark: isDark,
+                            size: 36,
+                            onPressed: _toggleTheme,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 5),
+                      // Row 2: Search form taking available width
+                      _buildTopSearchBar(canSubmit: canSubmit, isDark: isDark),
+                      const SizedBox(height: 5),
+                      // Row 3: Segmented selectors in horizontally scrollable row
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _buildSegmentedTypeSelector(isDark),
+                            const SizedBox(width: 8),
+                            _buildSegmentedDepthSelector(isDark),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildIconButton({
+    required IconData icon,
+    required String tooltip,
+    required bool isDark,
+    required VoidCallback onPressed,
+    double size = 42,
+  }) {
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+    final surface = isDark ? AppTheme.darkSurface : AppTheme.lightSurface;
+    final ink = isDark ? AppTheme.darkInk : AppTheme.lightInk;
+
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            color: surface,
+            borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+            border: Border.all(color: line, width: 1.0),
+          ),
+          alignment: Alignment.center,
+          child: Icon(icon, size: 18, color: ink),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAboutLink(bool isDark) {
+    final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
+    return Tooltip(
+      message: 'About Multi-Agent Assistant',
+      child: TextButton(
+        onPressed: () => _showAboutDialog(context),
+        style: TextButton.styleFrom(
+          foregroundColor: mute,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          minimumSize: Size.zero,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        child: Text(
+          'About',
+          style: AppTheme.bodyFont(fontSize: 14, color: mute),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBrandWordmark(bool isDark) {
+    final acc = isDark ? AppTheme.darkAcc : AppTheme.lightAcc;
+    final onAcc = isDark ? AppTheme.darkOnAcc : AppTheme.lightOnAcc;
+    final ink = isDark ? AppTheme.darkInk : AppTheme.lightInk;
+
+    return InkWell(
+      onTap: () {
+        if (_showLanding) {
+          if (_landingScrollController.hasClients) {
+            _landingScrollController.animateTo(
+              0,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOut,
+            );
+          }
+        } else {
+          setState(() => _showLanding = true);
+        }
+      },
+      borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            // 26x26 radius-8 square in --acc containing 10px ring in --onacc
+            Container(
+              width: 26,
+              height: 26,
+              decoration: BoxDecoration(
+                color: acc,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              alignment: Alignment.center,
+              child: Container(
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: onAcc,
+                    width: 2.0,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                'Multi Agent',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                softWrap: false,
+                style: AppTheme.displayFont(
+                  fontSize: 21,
+                  color: ink,
+                  height: 1.0,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTopSearchBar({
+    required bool canSubmit,
+    required bool isDark,
+    Widget? depthSelector,
+  }) {
+    final surface = isDark ? AppTheme.darkSurface : AppTheme.lightSurface;
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+    final ink = isDark ? AppTheme.darkInk : AppTheme.lightInk;
+    final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
+    final acc = isDark ? AppTheme.darkAcc : AppTheme.lightAcc;
+    final onAcc = isDark ? AppTheme.darkOnAcc : AppTheme.lightOnAcc;
+
+    return Container(
+      height: 38,
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: BorderRadius.circular(AppTheme.radiusInput),
+        border: Border.all(color: line, width: 1.0),
+      ),
+      padding: const EdgeInsets.fromLTRB(10, 2, 3, 2),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _topicController,
+              enabled: !_isLoading,
+              textInputAction: TextInputAction.search,
+              style: AppTheme.bodyFont(
+                fontSize: 14.5,
+                color: ink,
+              ),
+              decoration: InputDecoration(
+                hintText: 'Ask or enter a research topic',
+                hintStyle: AppTheme.bodyFont(
+                  fontSize: 14.5,
+                  color: mute,
+                ),
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                isDense: true,
+                contentPadding: EdgeInsets.zero,
+              ),
+              onChanged: (_) => setState(() {}),
+              onSubmitted: (_) {
+                if (canSubmit) _executeAsk();
+              },
+            ),
+          ),
+          if (_topicController.text.isNotEmpty)
+            IconButton(
+              icon: Icon(Icons.clear, size: 15, color: mute),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+              onPressed: _isLoading
+                  ? null
+                  : () {
+                      _topicController.clear();
+                      setState(() {});
+                    },
+            ),
+          if (depthSelector != null) ...[
+            const SizedBox(width: 4),
+            depthSelector,
+          ],
+          const SizedBox(width: 4),
+          SizedBox(
+            height: 32,
+            child: FilledButton(
+              onPressed: canSubmit ? _executeAsk : null,
+              style: FilledButton.styleFrom(
+                backgroundColor: acc,
+                foregroundColor: onAcc,
+                disabledBackgroundColor: line,
+                disabledForegroundColor: mute,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                ),
+                textStyle: AppTheme.bodyFont(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              child: _isLoading
+                  ? SizedBox(
+                      width: 12,
+                      height: 12,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(onAcc),
+                      ),
+                    )
+                  : const Text('Research'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSegmentedDepthSelector(bool isDark) {
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(AppTheme.radiusSeg),
+        border: Border.all(color: line, width: 1.0),
+      ),
+      padding: const EdgeInsets.all(2),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildSegItem(
+              label: 'Quick',
+              isSelected: _selectedDepth == 'quick',
+              isDark: isDark,
+              onTap: () {
+                setState(() => _selectedDepth = 'quick');
+                _saveDepthPreference('quick');
+              },
+            ),
+            const SizedBox(width: 2),
+            _buildSegItem(
+              label: 'Standard',
+              isSelected: _selectedDepth == 'standard',
+              isDark: isDark,
+              onTap: () {
+                setState(() => _selectedDepth = 'standard');
+                _saveDepthPreference('standard');
+              },
+            ),
+            const SizedBox(width: 2),
+            _buildSegItem(
+              label: 'Deep',
+              isSelected: _selectedDepth == 'deep',
+              isDark: isDark,
+              onTap: () {
+                setState(() => _selectedDepth = 'deep');
+                _saveDepthPreference('deep');
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSegmentedTypeSelector(bool isDark) {
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(AppTheme.radiusSeg),
+        border: Border.all(color: line, width: 1.0),
+      ),
+      padding: const EdgeInsets.all(2),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildSegItem(
+              label: 'General',
+              isSelected: _selectedType == 'general',
+              isDark: isDark,
+              onTap: () {
+                setState(() => _selectedType = 'general');
+                _saveTypePreference('general');
+              },
+            ),
+            const SizedBox(width: 2),
+            _buildSegItem(
+              label: 'News',
+              isSelected: _selectedType == 'news',
+              isDark: isDark,
+              onTap: () {
+                setState(() => _selectedType = 'news');
+                _saveTypePreference('news');
+              },
+            ),
+            const SizedBox(width: 2),
+            _buildSegItem(
+              label: 'Academic',
+              isSelected: _selectedType == 'academic',
+              isDark: isDark,
+              onTap: () {
+                setState(() => _selectedType = 'academic');
+                _saveTypePreference('academic');
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSegItem({
+    required String label,
+    required bool isSelected,
+    required bool isDark,
+    required VoidCallback onTap,
+  }) {
+    final acc = isDark ? AppTheme.darkAcc : AppTheme.lightAcc;
+    final onAcc = isDark ? AppTheme.darkOnAcc : AppTheme.lightOnAcc;
+    final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
+
+    return InkWell(
+      onTap: _isLoading ? null : onTap,
+      borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        decoration: BoxDecoration(
+          color: isSelected ? acc : Colors.transparent,
+          borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+        child: Text(
+          label,
+          style: AppTheme.bodyFont(
+            fontSize: 12.5,
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+            color: isSelected ? onAcc : mute,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildHeroView(bool canSubmit) {
-    final colorScheme = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final ink = isDark ? AppTheme.darkInk : AppTheme.lightInk;
+    final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
 
     return Center(
       key: const ValueKey('hero_view'),
       child: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 48),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 720),
+          constraints: const BoxConstraints(maxWidth: 860),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // Large Display Title with subtle gradient on key word
-              ShaderMask(
-                shaderCallback: (bounds) => (isDark
-                        ? AppTheme.heroTitleGradientDark
-                        : AppTheme.heroTitleGradient)
-                    .createShader(bounds),
-                child: Text(
-                  'Autonomous Multi-Agent Research',
-                  textAlign: TextAlign.center,
-                  style: AppTheme.displayFont(
-                    fontSize: 34,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                    letterSpacing: -0.5,
-                  ),
+              // Empty state heading (.empty h2.serif)
+              Text(
+                'What shall we look into?',
+                textAlign: TextAlign.center,
+                style: AppTheme.displayFont(
+                  fontSize: 44,
+                  color: ink,
+                  height: 1.0,
                 ),
               ),
               const SizedBox(height: 12),
 
-              // One-line Tagline
+              // Subtext (.empty text)
               Text(
-                'Live web investigation, strict multi-source corroboration, and transparent synthesis.',
+                'Type a topic above to begin.',
                 textAlign: TextAlign.center,
                 style: AppTheme.bodyFont(
-                  fontSize: 15,
-                  color: colorScheme.onSurfaceVariant,
-                  height: 1.5,
+                  fontSize: 16,
+                  color: mute,
                 ),
               ),
-              const SizedBox(height: 36),
+              const SizedBox(height: 32),
 
-              // Centered Search Bar with Glass-like Card Styling (28px rounded)
-              _buildSearchBar(canSubmit: canSubmit, isHero: true),
-              const SizedBox(height: 24),
-
-              // 3 Clickable Example Prompt Chips
+              // Starter Example Prompts (.eg button)
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 alignment: WrapAlignment.center,
                 children: [
-                  _buildExampleChip('Quantum computing in 2026'),
-                  _buildExampleChip('Latest on CRISPR'),
-                  _buildExampleChip('Explain how RAG works'),
+                  _buildExampleChip('Quantum computing in 2026', isDark),
+                  _buildExampleChip('Latest on CRISPR', isDark),
+                  _buildExampleChip('How does RAG work?', isDark),
                 ],
               ),
               const SizedBox(height: 48),
 
-              // Footer About Link
-              TextButton.icon(
+              // Footer link
+              TextButton(
                 onPressed: () => _showAboutDialog(context),
-                icon: const Icon(Icons.info_outline, size: 14),
-                label: const Text(
-                  'About Multi-Agent Assistant',
-                  style: TextStyle(fontSize: 12),
-                ),
                 style: TextButton.styleFrom(
-                  foregroundColor: colorScheme.onSurfaceVariant.withValues(alpha: 0.8),
+                  foregroundColor: mute,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                ),
+                child: Text(
+                  'About Multi-Agent Assistant',
+                  style: AppTheme.bodyFont(fontSize: 13, color: mute),
                 ),
               ),
             ],
@@ -993,19 +2406,28 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildExampleChip(String prompt) {
-    final colorScheme = Theme.of(context).colorScheme;
+  Widget _buildExampleChip(String prompt, bool isDark) {
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+    final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
 
-    return ActionChip(
-      avatar: const Icon(Icons.north_west, size: 13),
-      label: Text(
-        prompt,
-        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+    return InkWell(
+      onTap: () => _onSelectExamplePrompt(prompt),
+      borderRadius: BorderRadius.circular(AppTheme.radiusPill),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(AppTheme.radiusPill),
+          border: Border.all(color: line, width: 1.0),
+        ),
+        child: Text(
+          prompt,
+          style: AppTheme.bodyFont(
+            fontSize: 14,
+            color: mute,
+          ),
+        ),
       ),
-      backgroundColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-      side: BorderSide(color: colorScheme.outlineVariant.withValues(alpha: 0.5)),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      onPressed: () => _onSelectExamplePrompt(prompt),
     );
   }
 
@@ -1015,10 +2437,8 @@ class _HomeScreenState extends State<HomeScreen> {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 860),
         child: ListView(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
           children: [
-            _buildSearchBar(canSubmit: canSubmit, isHero: false),
-            const SizedBox(height: 20),
             if (_isLoading) _buildLoadingIndicator(),
             if (_errorMessage != null) ...[
               _buildErrorCard(),
@@ -1030,519 +2450,210 @@ class _HomeScreenState extends State<HomeScreen> {
               else if (_askResponse!.research != null)
                 _buildResultSection(_askResponse!.research!),
             ],
-            const SizedBox(height: 32),
+            const SizedBox(height: 40),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildSearchBar({required bool canSubmit, required bool isHero}) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return Column(
-      children: [
-        // Glass-like container
-        Container(
-          decoration: BoxDecoration(
-            color: isDark
-                ? colorScheme.surfaceContainer.withValues(alpha: 0.85)
-                : Colors.white.withValues(alpha: 0.92),
-            borderRadius: BorderRadius.circular(AppTheme.radiusPill),
-            border: Border.all(
-              color: colorScheme.outlineVariant.withValues(alpha: 0.7),
-              width: 1.2,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: colorScheme.primary.withValues(alpha: isDark ? 0.2 : 0.08),
-                blurRadius: isHero ? 24 : 14,
-                spreadRadius: isHero ? 2 : 1,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-          child: Row(
-            children: [
-              Icon(
-                Icons.search,
-                color: colorScheme.primary,
-                size: isHero ? 22 : 20,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: TextField(
-                  controller: _topicController,
-                  enabled: !_isLoading,
-                  textInputAction: TextInputAction.search,
-                  decoration: const InputDecoration(
-                    hintText: 'Ask or enter a research topic',
-                    border: InputBorder.none,
-                    isDense: true,
-                  ),
-                  onChanged: (_) => setState(() {}),
-                  onSubmitted: (_) {
-                    if (canSubmit) _executeAsk();
-                  },
-                ),
-              ),
-              if (_topicController.text.isNotEmpty)
-                IconButton(
-                  icon: const Icon(Icons.clear, size: 18),
-                  onPressed: _isLoading
-                      ? null
-                      : () {
-                          _topicController.clear();
-                          setState(() {});
-                        },
-                ),
-              const SizedBox(width: 4),
-              PrimaryResearchButton(
-                onPressed: canSubmit ? _executeAsk : null,
-                isLoading: _isLoading,
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 10),
-        _buildTypeAndDepthSelectors(colorScheme),
-      ],
-    );
-  }
-
-  Widget _buildTypeAndDepthSelectors(ColorScheme colorScheme) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 6),
-      child: Wrap(
-        spacing: 10,
-        runSpacing: 8,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          _buildTypeSelector(colorScheme),
-          _buildDepthSelector(colorScheme),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTypeSelector(ColorScheme colorScheme) {
-    final typeInfo = {
-      'general': {
-        'label': 'General',
-        'icon': Icons.public,
-        'tooltip': 'General: searches across authoritative public web sources',
-      },
-      'news': {
-        'label': 'News',
-        'icon': Icons.newspaper,
-        'tooltip': 'News: recent news articles from the past 30 days',
-      },
-      'academic': {
-        'label': 'Academic',
-        'icon': Icons.school,
-        'tooltip': 'Academic: peer-reviewed journals & preprint archives',
-      },
-    };
-
-    final current = typeInfo[_selectedType] ?? typeInfo['general']!;
-
-    return Tooltip(
-      message: current['tooltip'] as String,
-      child: PopupMenuButton<String>(
-        enabled: !_isLoading,
-        initialValue: _selectedType,
-        tooltip: 'Select research type',
-        onSelected: (val) {
-          setState(() {
-            _selectedType = val;
-          });
-          _saveTypePreference(val);
-        },
-        itemBuilder: (context) => [
-          _buildSelectorMenuItem(
-            value: 'general',
-            label: 'General',
-            icon: Icons.public,
-            desc: 'General public web sources',
-            isSelected: _selectedType == 'general',
-            colorScheme: colorScheme,
-          ),
-          _buildSelectorMenuItem(
-            value: 'news',
-            label: 'News',
-            icon: Icons.newspaper,
-            desc: 'Recent news (last 30 days)',
-            isSelected: _selectedType == 'news',
-            colorScheme: colorScheme,
-          ),
-          _buildSelectorMenuItem(
-            value: 'academic',
-            label: 'Academic',
-            icon: Icons.school,
-            desc: 'Peer-reviewed journals & preprints',
-            isSelected: _selectedType == 'academic',
-            colorScheme: colorScheme,
-          ),
-        ],
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: colorScheme.outlineVariant.withValues(alpha: 0.5),
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                current['icon'] as IconData,
-                size: 15,
-                color: _isLoading
-                    ? colorScheme.onSurface.withValues(alpha: 0.38)
-                    : colorScheme.primary,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                'Type: ${current['label']}',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: _isLoading
-                    ? colorScheme.onSurface.withValues(alpha: 0.38)
-                    : colorScheme.onSurface,
-                ),
-              ),
-              const SizedBox(width: 2),
-              Icon(
-                Icons.arrow_drop_down,
-                size: 16,
-                color: _isLoading
-                    ? colorScheme.onSurface.withValues(alpha: 0.38)
-                    : colorScheme.onSurfaceVariant,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDepthSelector(ColorScheme colorScheme) {
-    final depthInfo = {
-      'quick': {
-        'label': 'Quick',
-        'icon': Icons.bolt,
-        'tooltip': 'Quick: 1 search, ~3 LLM calls, fast summary',
-      },
-      'standard': {
-        'label': 'Standard',
-        'icon': Icons.tune,
-        'tooltip': 'Standard: up to 3 queries, multi-source corroboration',
-      },
-      'deep': {
-        'label': 'Deep',
-        'icon': Icons.layers,
-        'tooltip': 'Deep: up to 4 queries, fallback searches, up to 15 sources',
-      },
-    };
-
-    final current = depthInfo[_selectedDepth] ?? depthInfo['standard']!;
-
-    return Tooltip(
-      message: current['tooltip'] as String,
-      child: PopupMenuButton<String>(
-        enabled: !_isLoading,
-        initialValue: _selectedDepth,
-        tooltip: 'Select research depth',
-        onSelected: (val) {
-          setState(() {
-            _selectedDepth = val;
-          });
-          _saveDepthPreference(val);
-        },
-        itemBuilder: (context) => [
-          _buildSelectorMenuItem(
-            value: 'quick',
-            label: 'Quick',
-            icon: Icons.bolt,
-            desc: 'Single search, fast summary',
-            isSelected: _selectedDepth == 'quick',
-            colorScheme: colorScheme,
-          ),
-          _buildSelectorMenuItem(
-            value: 'standard',
-            label: 'Standard',
-            icon: Icons.tune,
-            desc: 'Up to 3 queries, multi-source corroboration',
-            isSelected: _selectedDepth == 'standard',
-            colorScheme: colorScheme,
-          ),
-          _buildSelectorMenuItem(
-            value: 'deep',
-            label: 'Deep',
-            icon: Icons.layers,
-            desc: 'Up to 4 queries, 15 sources, deep checks',
-            isSelected: _selectedDepth == 'deep',
-            colorScheme: colorScheme,
-          ),
-        ],
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: colorScheme.outlineVariant.withValues(alpha: 0.5),
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                current['icon'] as IconData,
-                size: 15,
-                color: _isLoading
-                    ? colorScheme.onSurface.withValues(alpha: 0.38)
-                    : colorScheme.primary,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                'Depth: ${current['label']}',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: _isLoading
-                    ? colorScheme.onSurface.withValues(alpha: 0.38)
-                    : colorScheme.onSurface,
-                ),
-              ),
-              const SizedBox(width: 2),
-              Icon(
-                Icons.arrow_drop_down,
-                size: 16,
-                color: _isLoading
-                    ? colorScheme.onSurface.withValues(alpha: 0.38)
-                    : colorScheme.onSurfaceVariant,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  PopupMenuItem<String> _buildSelectorMenuItem({
-    required String value,
-    required String label,
-    required IconData icon,
-    required String desc,
-    required bool isSelected,
-    required ColorScheme colorScheme,
-  }) {
-    return PopupMenuItem<String>(
-      value: value,
-      child: Row(
-        children: [
-          Icon(
-            icon,
-            size: 18,
-            color:
-                isSelected ? colorScheme.primary : colorScheme.onSurfaceVariant,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                    color: isSelected
-                        ? colorScheme.primary
-                        : colorScheme.onSurface,
-                  ),
-                ),
-                Text(
-                  desc,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (isSelected) ...[
-            const SizedBox(width: 6),
-            Icon(Icons.check, size: 16, color: colorScheme.primary),
-          ],
-        ],
       ),
     );
   }
 
   Widget _buildLoadingIndicator() {
-    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final ink = isDark ? AppTheme.darkInk : AppTheme.lightInk;
 
-    return Card(
-      elevation: 0,
-      color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppTheme.radiusCard),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 60),
+      alignment: Alignment.center,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          // Loading heading (.run .serif)
+          Text(
+            'Working on it…',
+            style: AppTheme.displayFont(
+              fontSize: 36,
+              color: ink,
+              height: 1.0,
+            ),
+          ),
+          const SizedBox(height: 28),
+
+          // Steps list (.run ol / li)
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 280),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildStepRow(
+                  label: 'Searching live sources',
+                  isDone: _loadingText != 'Thinking...',
+                  isActive: _loadingText == 'Thinking...',
+                  isDark: isDark,
+                ),
+                _buildStepRow(
+                  label: 'Cross-checking claims',
+                  isDone: false,
+                  isActive: _loadingText != 'Thinking...',
+                  isDark: isDark,
+                ),
+                _buildStepRow(
+                  label: 'Validating quotes',
+                  isDone: false,
+                  isActive: false,
+                  isDark: isDark,
+                ),
+                _buildStepRow(
+                  label: 'Writing the report',
+                  isDone: false,
+                  isActive: false,
+                  isDark: isDark,
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const CircularProgressIndicator(),
-            const SizedBox(height: 16),
-            Text(
-              _loadingText,
-              style: AppTheme.displayFont(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
+    );
+  }
+
+  Widget _buildStepRow({
+    required String label,
+    required bool isDone,
+    required bool isActive,
+    required bool isDark,
+  }) {
+    final at = isDark ? AppTheme.darkAt : AppTheme.lightAt;
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+    final ink = isDark ? AppTheme.darkInk : AppTheme.lightInk;
+    final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Container(
+            width: 12,
+            height: 12,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: isDone ? at : Colors.transparent,
+              border: Border.all(
+                color: (isDone || isActive) ? at : line,
+                width: 2.0,
               ),
             ),
-            if (_loadingText != 'Thinking...') ...[
-              const SizedBox(height: 6),
-              Text(
-                'Researcher, Fact-Checker, and Synthesizer agents are analyzing evidence.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ],
-        ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            label,
+            style: AppTheme.bodyFont(
+              fontSize: 14,
+              color: isActive ? ink : mute,
+              fontWeight: isActive ? FontWeight.w500 : FontWeight.normal,
+            ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildErrorCard() {
-    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bad = isDark ? AppTheme.darkBad : AppTheme.lightBad;
+    final surface = isDark ? AppTheme.darkSurface : AppTheme.lightSurface;
 
-    return Card(
-      elevation: 0,
-      color: colorScheme.errorContainer.withValues(alpha: 0.3),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppTheme.radiusCard),
-        side: BorderSide(color: colorScheme.error.withValues(alpha: 0.4)),
+    return Container(
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+        border: Border.all(color: bad, width: 1.0),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(Icons.error_outline, color: colorScheme.error, size: 24),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Request Failed',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: colorScheme.error,
-                      fontSize: 15,
-                    ),
+      padding: const EdgeInsets.all(18),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.error_outline, color: bad, size: 22),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Request Failed',
+                  style: AppTheme.bodyFont(
+                    fontWeight: FontWeight.bold,
+                    color: bad,
+                    fontSize: 15,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _errorMessage ?? 'Unknown error occurred.',
-                    style: TextStyle(
-                      color: colorScheme.onErrorContainer,
-                      fontSize: 13,
-                    ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _errorMessage ?? 'Unknown error occurred.',
+                  style: AppTheme.bodyFont(
+                    color: isDark ? AppTheme.darkMuted : AppTheme.lightMuted,
+                    fontSize: 13.5,
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildChatResponseCard(AskResponse res) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final surface = isDark ? AppTheme.darkSurface : AppTheme.lightSurface;
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+    final ink = isDark ? AppTheme.darkInk : AppTheme.lightInk;
 
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppTheme.radiusCard),
-        side: BorderSide(
-          color: colorScheme.outlineVariant.withValues(alpha: 0.5),
-        ),
+    return Container(
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+        border: Border.all(color: line, width: 1.0),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 28,
-                  height: 28,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: colorScheme.secondaryContainer.withValues(alpha: 0.6),
-                  ),
-                  child: Icon(
-                    Icons.chat_bubble_outline,
-                    size: 16,
-                    color: colorScheme.secondary,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  'Assistant',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: colorScheme.primary,
-                  ),
-                ),
-              ],
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Assistant',
+            style: AppTheme.displayFont(
+              fontSize: 20,
+              color: ink,
             ),
-            const SizedBox(height: 12),
-            SelectableText(
-              res.reply ?? '',
-              style: const TextStyle(fontSize: 15, height: 1.5),
+          ),
+          const SizedBox(height: 10),
+          SelectableText(
+            res.reply ?? '',
+            style: AppTheme.bodyFont(
+              fontSize: 15,
+              height: 1.55,
+              color: ink,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildResultSection(ResearchResponse res) {
-    final colorScheme = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    // Build URL to title map for claims
-    final sourceTitleMap = <String, String>{};
-    for (final s in res.sources) {
-      if (s.url.isNotEmpty) {
-        sourceTitleMap[s.url] = s.title;
-      }
-    }
+    final ink = isDark ? AppTheme.darkInk : AppTheme.lightInk;
+    final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+    final surface = isDark ? AppTheme.darkSurface : AppTheme.lightSurface;
+    final at = isDark ? AppTheme.darkAt : AppTheme.lightAt;
+    final ok = isDark ? AppTheme.darkOk : AppTheme.lightOk;
+    final warn = isDark ? AppTheme.darkWarn : AppTheme.lightWarn;
+    final bad = isDark ? AppTheme.darkBad : AppTheme.lightBad;
 
     final activeType = _activeResearchType ?? _selectedType;
     final activeDepth = _activeResearchDepth ?? _selectedDepth;
 
-    // Claim Counts
     final supportedCount =
         res.claims.where((c) => c.status.toLowerCase() == 'supported').length;
     final singleSourceCount =
@@ -1552,398 +2663,335 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final cleanedMarkdown = _cleanReportMarkdown(res.reportMarkdown);
 
+    // Extract bullet points for Key findings (.fl) if present in report
+    final lines = cleanedMarkdown.split('\n');
+    final bulletLines = lines
+        .where((l) => l.trim().startsWith('- ') || l.trim().startsWith('* '))
+        .map((l) => l.trim().substring(2).trim())
+        .toList();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // 1. Report Header Card
-        Card(
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppTheme.radiusCard),
-            side: BorderSide(
-              color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+        // 1. Report Chips (.bd)
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _buildReportChip('Type: ${_formatType(activeType)}', isDark),
+            _buildReportChip('Depth: ${_formatDepth(activeDepth)}', isDark),
+          ],
+        ),
+        const SizedBox(height: 12),
+
+        // 2. Report Title (.rp h2)
+        Text(
+          res.topic,
+          style: AppTheme.displayFont(
+            fontSize: 42,
+            color: ink,
+            height: 1.0,
+          ),
+        ),
+        const SizedBox(height: 22),
+
+        // 3. Tally Box (.stats)
+        Container(
+          decoration: BoxDecoration(
+            color: surface,
+            borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+            border: Border.all(color: line, width: 1.0),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: _buildTallyCol(
+                  count: supportedCount,
+                  label: 'Corroborated',
+                  color: ok,
+                  isDark: isDark,
+                  hasBorder: true,
+                ),
+              ),
+              Expanded(
+                child: _buildTallyCol(
+                  count: singleSourceCount,
+                  label: 'Single source',
+                  color: warn,
+                  isDark: isDark,
+                  hasBorder: true,
+                ),
+              ),
+              Expanded(
+                child: _buildTallyCol(
+                  count: unsupportedCount,
+                  label: 'Unsupported',
+                  color: bad,
+                  isDark: isDark,
+                  hasBorder: false,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+
+        // 4. Summary / Report Body (.sum + markdown)
+        MarkdownBody(
+          data: cleanedMarkdown,
+          selectable: true,
+          onTapLink: (text, href, title) {
+            if (href != null && href.isNotEmpty) {
+              _launchUrlString(href);
+            }
+          },
+          styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+            p: AppTheme.bodyFont(
+              fontSize: 17,
+              height: 1.6,
+              color: ink,
+            ),
+            h1: AppTheme.displayFont(
+              fontSize: 28,
+              color: ink,
+              height: 1.1,
+            ),
+            h2: AppTheme.displayFont(
+              fontSize: 24,
+              color: ink,
+              height: 1.1,
+            ),
+            h3: AppTheme.displayFont(
+              fontSize: 20,
+              color: ink,
+              height: 1.15,
+            ),
+            h4: AppTheme.monoFont(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.08,
+              color: mute,
+            ),
+            listBullet: AppTheme.monoFont(
+              fontSize: 13,
+              color: at,
+            ),
+            a: TextStyle(
+              color: at,
+              decoration: TextDecoration.underline,
+            ),
+            blockquote: AppTheme.bodyFont(
+              fontSize: 15,
+              fontStyle: FontStyle.italic,
+              color: mute,
+            ),
+            blockquoteDecoration: BoxDecoration(
+              color: surface,
+              borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+              border: Border.all(color: line, width: 1.0),
+            ),
+            blockquotePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          ),
+        ),
+        const SizedBox(height: 34),
+
+        // 5. Key findings (.fl) if bullets were extracted
+        if (bulletLines.isNotEmpty) ...[
+          Text(
+            'KEY FINDINGS',
+            style: AppTheme.monoFont(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.08,
+              color: mute,
             ),
           ),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Topic as Title
-                Text(
-                  res.topic,
-                  style: AppTheme.displayFont(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: colorScheme.onSurface,
+          const SizedBox(height: 8),
+          for (var i = 0; i < bulletLines.length; i++)
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              decoration: BoxDecoration(
+                border: Border(
+                  top: BorderSide(color: line, width: 1.0),
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    (i + 1).toString().padLeft(2, '0'),
+                    style: AppTheme.monoFont(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: at,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 12),
-
-                // Type & Depth Badges and Audit Summary Strip
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    _buildReportChip(
-                      icon: _iconForType(activeType),
-                      label: 'Type: ${_formatType(activeType)}',
-                      colorScheme: colorScheme,
-                    ),
-                    _buildReportChip(
-                      icon: _iconForDepth(activeDepth),
-                      label: 'Depth: ${_formatDepth(activeDepth)}',
-                      colorScheme: colorScheme,
-                    ),
-                    const SizedBox(width: 4),
-                    // Audit count badges
-                    _buildAuditCountBadge(
-                      label: '$supportedCount Supported',
-                      icon: Icons.check_circle,
-                      color: AppTheme.statusSupported,
-                      bgColor: isDark
-                          ? AppTheme.statusSupportedBgDark
-                          : AppTheme.statusSupportedBgLight,
-                    ),
-                    _buildAuditCountBadge(
-                      label: '$singleSourceCount Single source',
-                      icon: Icons.warning_amber_rounded,
-                      color: AppTheme.statusSingleSource,
-                      bgColor: isDark
-                          ? AppTheme.statusSingleSourceBgDark
-                          : AppTheme.statusSingleSourceBgLight,
-                    ),
-                    if (unsupportedCount > 0)
-                      _buildAuditCountBadge(
-                        label: '$unsupportedCount Unsupported',
-                        icon: Icons.cancel_outlined,
-                        color: AppTheme.statusUnsupported,
-                        bgColor: isDark
-                            ? AppTheme.statusUnsupportedBgDark
-                            : AppTheme.statusUnsupportedBgLight,
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Text(
+                      bulletLines[i],
+                      style: AppTheme.bodyFont(
+                        fontSize: 16,
+                        color: ink,
+                        height: 1.45,
                       ),
-                  ],
-                ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          const SizedBox(height: 34),
+        ],
+
+        // 6. Claims and evidence (.cl)
+        if (res.claims.isNotEmpty) ...[
+          Text(
+            'CLAIMS AND EVIDENCE',
+            style: AppTheme.monoFont(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.08,
+              color: mute,
+            ),
+          ),
+          const SizedBox(height: 8),
+          for (var i = 0; i < res.claims.length; i++)
+            _buildClaimBlock(
+              claim: res.claims[i],
+              isLast: i == res.claims.length - 1,
+              isDark: isDark,
+            ),
+          const SizedBox(height: 34),
+        ],
+
+        // 7. Consulted sources panel
+        if (res.sources.isNotEmpty) ...[
+          Text(
+            'CONSULTED SOURCES',
+            style: AppTheme.monoFont(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.08,
+              color: mute,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: surface,
+              borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+              border: Border.all(color: line, width: 1.0),
+            ),
+            child: Column(
+              children: [
+                for (var i = 0; i < res.sources.length; i++)
+                  InkWell(
+                    onTap: () => _launchUrlString(res.sources[i].url),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        border: i > 0
+                            ? Border(top: BorderSide(color: line, width: 1.0))
+                            : null,
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (res.sources[i].title.trim().isNotEmpty &&
+                                    res.sources[i].title.trim() != res.sources[i].url)
+                                  Text(
+                                    res.sources[i].title.trim(),
+                                    style: AppTheme.bodyFont(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w500,
+                                      color: ink,
+                                    ),
+                                  ),
+                                Text(
+                                  _extractDomain(res.sources[i].url),
+                                  style: AppTheme.monoFont(
+                                    fontSize: 12,
+                                    color: mute,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(Icons.open_in_new, size: 14, color: mute),
+                        ],
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
-        ),
-        const SizedBox(height: 16),
-
-        // 2. Synthesized Report Card
-        Card(
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppTheme.radiusCard),
-            side: BorderSide(
-              color: colorScheme.outlineVariant.withValues(alpha: 0.5),
-            ),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 760),
-              child: MarkdownBody(
-                data: cleanedMarkdown,
-                selectable: true,
-                onTapLink: (text, href, title) {
-                  if (href != null && href.isNotEmpty) {
-                    _launchUrlString(href);
-                  }
-                },
-                styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-                  p: AppTheme.bodyFont(
-                    fontSize: 14,
-                    height: 1.6,
-                    color: colorScheme.onSurface,
-                  ),
-                  h1: AppTheme.displayFont(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: colorScheme.primary,
-                  ),
-                  h2: AppTheme.displayFont(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: colorScheme.primary,
-                  ),
-                  h3: AppTheme.displayFont(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    color: colorScheme.onSurface,
-                  ),
-                  a: TextStyle(
-                    color: colorScheme.primary,
-                    decoration: TextDecoration.underline,
-                    fontWeight: FontWeight.w500,
-                  ),
-                  blockquoteDecoration: BoxDecoration(
-                    color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
-                    border: Border(
-                      left: BorderSide(color: colorScheme.primary, width: 4),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-
-        // 3. Claims & Verification Audit Panel (expanded by default)
-        Card(
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppTheme.radiusCard),
-            side: BorderSide(
-              color: colorScheme.outlineVariant.withValues(alpha: 0.5),
-            ),
-          ),
-          child: ExpansionTile(
-            initiallyExpanded: true,
-            leading: Icon(Icons.fact_check_outlined, color: colorScheme.primary),
-            title: Text(
-              'Claims & Verification Audit (${res.claims.length})',
-              style: AppTheme.displayFont(
-                fontWeight: FontWeight.bold,
-                fontSize: 15,
-              ),
-            ),
-            children: res.claims.map((claim) {
-              final urls = claim.sourceUrls.isNotEmpty
-                  ? claim.sourceUrls
-                  : (claim.sourceUrl != null ? [claim.sourceUrl!] : <String>[]);
-
-              final statusColor = _statusColor(claim.status);
-
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
-                      border: Border(
-                        left: BorderSide(color: statusColor, width: 4),
-                        top: BorderSide(color: colorScheme.outlineVariant.withValues(alpha: 0.3)),
-                        right: BorderSide(color: colorScheme.outlineVariant.withValues(alpha: 0.3)),
-                        bottom: BorderSide(color: colorScheme.outlineVariant.withValues(alpha: 0.3)),
-                      ),
-                    ),
-                    padding: const EdgeInsets.all(14),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _buildStatusChip(claim.status),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              claim.statement,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 14,
-                                height: 1.4,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (claim.evidence.isNotEmpty) ...[
-                        const SizedBox(height: 10),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: colorScheme.surfaceContainerHighest,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: colorScheme.outlineVariant.withValues(alpha: 0.5),
-                            ),
-                          ),
-                          child: Text(
-                            'Evidence: "${claim.evidence}"',
-                            style: TextStyle(
-                              fontStyle: FontStyle.italic,
-                              fontSize: 13,
-                              color: colorScheme.onSurface,
-                              height: 1.4,
-                            ),
-                          ),
-                        ),
-                      ],
-                      if (urls.isNotEmpty) ...[
-                        const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
-                          children: [
-                            for (final url in urls)
-                              InkWell(
-                                onTap: () => _launchUrlString(url),
-                                borderRadius: BorderRadius.circular(12),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 8, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: colorScheme.surfaceContainerHighest
-                                        .withValues(alpha: 0.7),
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
-                                      color: colorScheme.outlineVariant
-                                          .withValues(alpha: 0.5),
-                                    ),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        Icons.open_in_new,
-                                        size: 12,
-                                        color: colorScheme.primary,
-                                      ),
-                                      const SizedBox(width: 5),
-                                      Text(
-                                        _extractDomain(url),
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w500,
-                                          color: colorScheme.primary,
-                                          decoration: TextDecoration.underline,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-            );
-            }).toList(),
-          ),
-        ),
-        const SizedBox(height: 16),
-
-        // 4. Consulted Sources Panel (collapsed by default)
-        Card(
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppTheme.radiusCard),
-            side: BorderSide(
-              color: colorScheme.outlineVariant.withValues(alpha: 0.5),
-            ),
-          ),
-          child: ExpansionTile(
-            initiallyExpanded: false,
-            leading: Icon(Icons.link_outlined, color: colorScheme.primary),
-            title: Text(
-              'Consulted Sources (${res.sources.length})',
-              style: AppTheme.displayFont(
-                fontWeight: FontWeight.bold,
-                fontSize: 15,
-              ),
-            ),
-            children: res.sources.map((source) {
-              final domain = _extractDomain(source.url);
-              final hasTitle = source.title.trim().isNotEmpty &&
-                  source.title.trim() != source.url;
-              final firstLetter = domain.isNotEmpty
-                  ? domain[0].toUpperCase()
-                  : 'S';
-
-              return ListTile(
-                dense: true,
-                leading: CircleAvatar(
-                  radius: 14,
-                  backgroundColor: colorScheme.primaryContainer,
-                  child: Text(
-                    firstLetter,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: colorScheme.primary,
-                    ),
-                  ),
-                ),
-                title: hasTitle
-                    ? Text(
-                        source.title.trim(),
-                        style: const TextStyle(fontWeight: FontWeight.w500),
-                      )
-                    : null,
-                subtitle: Tooltip(
-                  message: source.url,
-                  child: InkWell(
-                    onTap: () => _launchUrlString(source.url),
-                    child: Text(
-                      domain,
-                      style: TextStyle(
-                        color: colorScheme.primary,
-                        decoration: TextDecoration.underline,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ),
-                trailing: IconButton(
-                  icon: const Icon(Icons.open_in_new, size: 16),
-                  tooltip: source.url,
-                  onPressed: () => _launchUrlString(source.url),
-                ),
-                onTap: () => _launchUrlString(source.url),
-              );
-            }).toList(),
-          ),
-        ),
+        ],
       ],
     );
   }
 
-  Color _statusColor(String status) {
-    switch (status.toLowerCase()) {
-      case 'supported':
-        return AppTheme.statusSupported;
-      case 'single_source':
-        return AppTheme.statusSingleSource;
-      case 'unsupported':
-      default:
-        return AppTheme.statusUnsupported;
-    }
+  Widget _buildReportChip(String label, bool isDark) {
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+    final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(AppTheme.radiusPill),
+        border: Border.all(color: line, width: 1.0),
+      ),
+      child: Text(
+        label,
+        style: AppTheme.monoFont(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: mute,
+        ),
+      ),
+    );
   }
 
-  Widget _buildAuditCountBadge({
+  Widget _buildTallyCol({
+    required int count,
     required String label,
-    required IconData icon,
     required Color color,
-    required Color bgColor,
+    required bool isDark,
+    required bool hasBorder,
   }) {
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+    final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
       decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.5)),
+        border: hasBorder
+            ? Border(right: BorderSide(color: line, width: 1.0))
+            : null,
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 12, color: color),
-          const SizedBox(width: 4),
+          Text(
+            '$count',
+            style: AppTheme.displayFont(
+              fontSize: 44,
+              color: color,
+              height: 1.0,
+            ),
+          ),
+          const SizedBox(height: 6),
           Text(
             label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.bold,
-              color: color,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTheme.bodyFont(
+              fontSize: 13,
+              color: mute,
             ),
           ),
         ],
@@ -1951,27 +2999,165 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildReportChip({
-    required IconData icon,
-    required String label,
-    required ColorScheme colorScheme,
+  Widget _buildClaimBlock({
+    required ClaimItem claim,
+    required bool isLast,
+    required bool isDark,
   }) {
-    return Chip(
-      avatar: Icon(icon, size: 14, color: colorScheme.primary),
-      label: Text(
-        label,
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          color: colorScheme.onSurfaceVariant,
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+    final surface = isDark ? AppTheme.darkSurface : AppTheme.lightSurface;
+    final ink = isDark ? AppTheme.darkInk : AppTheme.lightInk;
+    final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
+    final ok = isDark ? AppTheme.darkOk : AppTheme.lightOk;
+    final warn = isDark ? AppTheme.darkWarn : AppTheme.lightWarn;
+    final bad = isDark ? AppTheme.darkBad : AppTheme.lightBad;
+
+    final statusLower = claim.status.toLowerCase();
+    final Color badgeColor;
+    final String badgeLabel;
+    final Widget badgeMarker;
+
+    switch (statusLower) {
+      case 'supported':
+        badgeColor = ok;
+        badgeLabel = 'Corroborated';
+        badgeMarker = Container(
+          width: 7,
+          height: 7,
+          decoration: BoxDecoration(
+            color: ok,
+            shape: BoxShape.circle,
+          ),
+        );
+        break;
+      case 'single_source':
+        badgeColor = warn;
+        badgeLabel = 'Single source';
+        badgeMarker = Transform.rotate(
+          angle: 0.785398, // 45 degrees diamond
+          child: Container(
+            width: 7,
+            height: 7,
+            color: warn,
+          ),
+        );
+        break;
+      case 'unsupported':
+      default:
+        badgeColor = bad;
+        badgeLabel = 'Unsupported';
+        badgeMarker = Container(
+          width: 7,
+          height: 7,
+          color: bad,
+        );
+        break;
+    }
+
+    final urls = claim.sourceUrls.isNotEmpty
+        ? claim.sourceUrls
+        : (claim.sourceUrl != null ? [claim.sourceUrl!] : <String>[]);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 20),
+      decoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(color: line, width: 1.0),
+          bottom: isLast ? BorderSide(color: line, width: 1.0) : BorderSide.none,
         ),
       ),
-      backgroundColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-      side: BorderSide(
-        color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Status badge (.bd)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(AppTheme.radiusPill),
+              border: Border.all(color: badgeColor, width: 1.0),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                badgeMarker,
+                const SizedBox(width: 7),
+                Text(
+                  badgeLabel,
+                  style: AppTheme.monoFont(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.04,
+                    color: badgeColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // Claim Statement (.cl p)
+          Text(
+            claim.statement,
+            style: AppTheme.bodyFont(
+              fontSize: 17,
+              color: ink,
+              height: 1.45,
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // Evidence quote blockquote (.cl blockquote)
+          if (claim.evidence.isNotEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: surface,
+                borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                border: Border.all(color: line, width: 1.0),
+              ),
+              child: Text(
+                '“${claim.evidence}”',
+                style: AppTheme.bodyFont(
+                  fontSize: 15,
+                  fontStyle: FontStyle.italic,
+                  color: mute,
+                  height: 1.45,
+                ),
+              ),
+            ),
+
+          // Source domain link chips (.mt a)
+          if (urls.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final url in urls)
+                  InkWell(
+                    onTap: () => _launchUrlString(url),
+                    borderRadius: BorderRadius.circular(AppTheme.radiusPill),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(AppTheme.radiusPill),
+                        border: Border.all(color: line, width: 1.0),
+                      ),
+                      child: Text(
+                        _extractDomain(url),
+                        style: AppTheme.monoFont(
+                          fontSize: 13,
+                          color: ink,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ],
       ),
-      visualDensity: VisualDensity.compact,
-      padding: const EdgeInsets.symmetric(horizontal: 4),
     );
   }
 
@@ -1987,18 +3173,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  IconData _iconForType(String? type) {
-    switch (type?.toLowerCase()) {
-      case 'news':
-        return Icons.newspaper;
-      case 'academic':
-        return Icons.school;
-      case 'general':
-      default:
-        return Icons.public;
-    }
-  }
-
   String _formatDepth(String? depth) {
     switch (depth?.toLowerCase()) {
       case 'quick':
@@ -2010,70 +3184,9 @@ class _HomeScreenState extends State<HomeScreen> {
         return 'Standard';
     }
   }
-
-  IconData _iconForDepth(String? depth) {
-    switch (depth?.toLowerCase()) {
-      case 'quick':
-        return Icons.bolt;
-      case 'deep':
-        return Icons.layers;
-      case 'standard':
-      default:
-        return Icons.tune;
-    }
-  }
-
-  Widget _buildStatusChip(String status) {
-    switch (status.toLowerCase()) {
-      case 'supported':
-        return const Chip(
-          avatar: Icon(Icons.check_circle, size: 14, color: Color(0xFF15803D)),
-          label: Text('supported'),
-          backgroundColor: Color(0xFFDCFCE7),
-          labelStyle: TextStyle(
-            color: Color(0xFF15803D),
-            fontWeight: FontWeight.bold,
-            fontSize: 11,
-          ),
-          side: BorderSide(color: Color(0xFF86EFAC)),
-          visualDensity: VisualDensity.compact,
-          padding: EdgeInsets.zero,
-        );
-      case 'single_source':
-        return const Chip(
-          avatar: Icon(Icons.warning_amber_rounded, size: 14, color: Color(0xFFB45309)),
-          label: Text('single_source'),
-          backgroundColor: Color(0xFFFEF3C7),
-          labelStyle: TextStyle(
-            color: Color(0xFFB45309),
-            fontWeight: FontWeight.bold,
-            fontSize: 11,
-          ),
-          side: BorderSide(color: Color(0xFFFDE68A)),
-          visualDensity: VisualDensity.compact,
-          padding: EdgeInsets.zero,
-        );
-      case 'unsupported':
-      default:
-        return const Chip(
-          avatar: Icon(Icons.cancel_outlined, size: 14, color: Color(0xFFB91C1C)),
-          label: Text('unsupported'),
-          backgroundColor: Color(0xFFFEE2E2),
-          labelStyle: TextStyle(
-            color: Color(0xFFB91C1C),
-            fontWeight: FontWeight.bold,
-            fontSize: 11,
-          ),
-          side: BorderSide(color: Color(0xFFFCA5A5)),
-          visualDensity: VisualDensity.compact,
-          padding: EdgeInsets.zero,
-        );
-    }
-  }
 }
 
-/// Redesigned sidebar item with mode icon in circle, relative timestamp,
-/// active item highlight, and hover delete button.
+/// History tile replicating `.hi` from reference prototype.
 class _HistoryTile extends StatefulWidget {
   final HistoryItem item;
   final bool isSelected;
@@ -2100,9 +3213,13 @@ class _HistoryTileState extends State<_HistoryTile> {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
     final isChat = widget.item.mode == 'chat';
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final at = isDark ? AppTheme.darkAt : AppTheme.lightAt;
+    final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
+    final ink = isDark ? AppTheme.darkInk : AppTheme.lightInk;
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+    final bg = isDark ? AppTheme.darkBg : AppTheme.lightBg;
 
     final showDelete = !widget.isWide || _isHovered;
 
@@ -2110,51 +3227,37 @@ class _HistoryTileState extends State<_HistoryTile> {
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() => _isHovered = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-          color: widget.isSelected
-              ? colorScheme.primaryContainer.withValues(alpha: isDark ? 0.35 : 0.6)
-              : (_isHovered
-                  ? colorScheme.surfaceContainerHighest.withValues(alpha: 0.5)
-                  : Colors.transparent),
-          border: Border.all(
-            color: widget.isSelected
-                ? colorScheme.primary.withValues(alpha: 0.6)
-                : (_isHovered
-                    ? colorScheme.outlineVariant.withValues(alpha: 0.4)
-                    : Colors.transparent),
-            width: 1,
-          ),
-        ),
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 2),
         child: InkWell(
-          borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
           onTap: widget.onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            decoration: BoxDecoration(
+              color: widget.isSelected ? bg : (_isHovered ? bg : Colors.transparent),
+              borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+              border: widget.isSelected
+                  ? Border.all(color: line, width: 1.0)
+                  : Border.all(color: Colors.transparent, width: 1.0),
+            ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // Leading mode icon in tinted circle
+                // 8px circular dot (.hi i: 8x8 dot in --at or ring in --mute for chat)
                 Container(
-                  width: 30,
-                  height: 30,
+                  width: 8,
+                  height: 8,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: isChat
-                        ? colorScheme.secondaryContainer.withValues(alpha: 0.6)
-                        : colorScheme.primaryContainer.withValues(alpha: 0.6),
-                  ),
-                  child: Icon(
-                    isChat ? Icons.chat_bubble_outline : Icons.auto_awesome,
-                    size: 15,
-                    color: isChat ? colorScheme.secondary : colorScheme.primary,
+                    color: isChat ? Colors.transparent : at,
+                    border: isChat ? Border.all(color: mute, width: 2) : null,
                   ),
                 ),
                 const SizedBox(width: 10),
-                // Title and subtitle
+
+                // Title and subtle secondary line
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -2162,60 +3265,51 @@ class _HistoryTileState extends State<_HistoryTile> {
                     children: [
                       Text(
                         widget.item.message,
-                        maxLines: 2,
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 13,
+                        style: AppTheme.bodyFont(
+                          fontSize: 14,
                           fontWeight:
-                              widget.isSelected ? FontWeight.bold : FontWeight.w500,
-                          color: colorScheme.onSurface,
-                          height: 1.25,
+                              widget.isSelected ? FontWeight.w600 : FontWeight.normal,
+                          color: ink,
                         ),
                       ),
-                      const SizedBox(height: 3),
-                      Row(
-                        children: [
-                          Text(
-                            widget.relativeTime,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: colorScheme.onSurfaceVariant
-                                  .withValues(alpha: 0.75),
-                            ),
+                      if (!isChat && widget.item.formattedTypeAndDepth != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          widget.item.formattedTypeAndDepth!,
+                          style: AppTheme.monoFont(
+                            fontSize: 11,
+                            color: mute,
                           ),
-                          if (!isChat &&
-                              widget.item.formattedTypeAndDepth != null) ...[
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 5, vertical: 1),
-                              decoration: BoxDecoration(
-                                color: colorScheme.surfaceContainerHighest
-                                    .withValues(alpha: 0.8),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                widget.item.formattedTypeAndDepth!,
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w600,
-                                  color: colorScheme.primary,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
-                if (showDelete)
+
+                const SizedBox(width: 8),
+
+                // Timestamp (.hi small)
+                Text(
+                  widget.relativeTime,
+                  style: AppTheme.monoFont(
+                    fontSize: 11,
+                    color: mute,
+                  ),
+                ),
+
+                if (showDelete) ...[
+                  const SizedBox(width: 4),
                   IconButton(
-                    icon: const Icon(Icons.close, size: 14),
+                    icon: Icon(Icons.close, size: 14, color: mute),
                     tooltip: 'Delete',
                     visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
                     onPressed: widget.onDelete,
                   ),
+                ],
               ],
             ),
           ),
