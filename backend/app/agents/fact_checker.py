@@ -210,14 +210,19 @@ def _cap_sources(sources: List[Dict[str, str]], claims: List[Dict[str, Any]], ma
     return capped[:max_sources] if len(capped) > max_sources else capped
 
 
-def check_facts(topic: str, sources: List[Dict[str, str]]) -> List[Dict[str, Any]]:
+def check_facts(
+    topic: str,
+    sources: List[Dict[str, str]],
+    depth_config: Optional[Dict[str, Any]] = None,
+    research_type: str = "general",
+) -> List[Dict[str, Any]]:
     """
     Extract key claims from sources and verify their factual support:
     1. Initial claim extraction
     2. Batched cross-check pass across all retrieved sources
     3. Strict quote-in-text validation and registrable domain deduplication
-    4. Targeted search fallback for up to 3 single_source claims
-    5. Capping total returned sources at 12
+    4. Targeted search fallback for single_source claims (skipped in quick depth)
+    5. Capping total returned sources (12 for quick/standard, 15 for deep)
 
     Statuses:
     - 'supported': corroborated by >= 2 distinct registrable domains
@@ -236,6 +241,14 @@ def check_facts(topic: str, sources: List[Dict[str, str]]) -> List[Dict[str, Any
         ]
 
     valid_urls = {s.get("url", "").strip() for s in sources if s.get("url")}
+
+    if depth_config is None:
+        depth_config = {
+            "max_fallback_claims": 3,
+            "sources_cap": 12,
+        }
+    max_fallback = depth_config.get("max_fallback_claims", 3)
+    sources_cap = depth_config.get("sources_cap", 12)
 
     # -------------------------------------------------------------
     # Step 1: Initial claim extraction pass
@@ -424,67 +437,72 @@ def check_facts(topic: str, sources: List[Dict[str, str]]) -> List[Dict[str, Any
             claim["source_url"] = claim["source_urls"][0] if claim["source_urls"] else None
 
     # -------------------------------------------------------------
-    # Step 3: Targeted search fallback for up to 3 single_source claims
+    # Step 3: Targeted search fallback for single_source claims
     # -------------------------------------------------------------
-    single_source_claims = [c for c in claims if c.get("status") == "single_source"][:3]
-    for claim in single_source_claims:
-        try:
-            new_results = search(query=claim["statement"], max_results=5)
-            if not new_results:
-                continue
+    if max_fallback > 0:
+        single_source_claims = [c for c in claims if c.get("status") == "single_source"][:max_fallback]
+        for claim in single_source_claims:
+            try:
+                new_results = search(
+                    query=claim["statement"],
+                    max_results=5,
+                    research_type=research_type,
+                )
+                if not new_results:
+                    continue
 
-            fb_system = (
-                "You are a factual verification agent. For the given claim, determine which of the new sources directly support it.\n"
-                "Requirements:\n"
-                "1. Only cite a source if it clearly states the same fact (same numbers, names, dates).\n"
-                "2. For each supporting source, provide the source_index and a verbatim quote (at least 6 words, max 200 chars) copied directly from that source.\n"
-                "3. Output JSON ONLY: a list of objects with 'source_index' and 'quote'. Example: [{\"source_index\": 0, \"quote\": \"...\"}]\n"
-                "If none support it, return []."
-            )
-            fb_sources_text = "\n\n".join(
-                f"Source {idx} (domain: {_extract_registrable_domain(s.get('url', ''))}, url: {s.get('url')}):\n"
-                f"{(s.get('content') or '')[:800]}"
-                for idx, s in enumerate(new_results)
-            )
-            fb_user = f"Claim to verify: {claim['statement']}\n\nNew Sources:\n{fb_sources_text}"
-            raw_fb = chat(system=fb_system, user=fb_user, temperature=0.1)
-            fb_items = _parse_fallback_json(raw_fb)
+                fb_system = (
+                    "You are a factual verification agent. For the given claim, determine which of the new sources directly support it.\n"
+                    "Requirements:\n"
+                    "1. Only cite a source if it clearly states the same fact (same numbers, names, dates).\n"
+                    "2. For each supporting source, provide the source_index and a verbatim quote (at least 6 words, max 200 chars) copied directly from that source.\n"
+                    "3. Output JSON ONLY: a list of objects with 'source_index' and 'quote'. Example: [{\"source_index\": 0, \"quote\": \"...\"}]\n"
+                    "If none support it, return []."
+                )
+                fb_sources_text = "\n\n".join(
+                    f"Source {idx} (domain: {_extract_registrable_domain(s.get('url', ''))}, url: {s.get('url')}):\n"
+                    f"{(s.get('content') or '')[:800]}"
+                    for idx, s in enumerate(new_results)
+                )
+                fb_user = f"Claim to verify: {claim['statement']}\n\nNew Sources:\n{fb_sources_text}"
+                raw_fb = chat(system=fb_system, user=fb_user, temperature=0.1)
+                fb_items = _parse_fallback_json(raw_fb)
 
-            for item in fb_items:
-                idx = item.get("source_index")
-                quote = str(item.get("quote", "")).strip()[:200]
-                if isinstance(idx, int) and 0 <= idx < len(new_results):
-                    ns = new_results[idx]
-                    ns_url = ns.get("url", "").strip()
-                    if ns_url:
-                        is_valid, _, _ = _validate_quote_for_claim(
-                            quote, ns.get("content", "") or "", claim["statement"]
-                        )
-                        if is_valid:
-                            # Only add newly found source if it actually validated as a supporter
-                            if not any(s.get("url") == ns_url for s in sources):
-                                sources.append(ns)
-                            if ns_url not in claim["source_urls"]:
-                                claim["source_urls"].append(ns_url)
-                            if not claim.get("evidence"):
-                                claim["evidence"] = quote
+                for item in fb_items:
+                    idx = item.get("source_index")
+                    quote = str(item.get("quote", "")).strip()[:200]
+                    if isinstance(idx, int) and 0 <= idx < len(new_results):
+                        ns = new_results[idx]
+                        ns_url = ns.get("url", "").strip()
+                        if ns_url:
+                            is_valid, _, _ = _validate_quote_for_claim(
+                                quote, ns.get("content", "") or "", claim["statement"]
+                            )
+                            if is_valid:
+                                # Only add newly found source if it actually validated as a supporter
+                                if not any(s.get("url") == ns_url for s in sources):
+                                    sources.append(ns)
+                                if ns_url not in claim["source_urls"]:
+                                    claim["source_urls"].append(ns_url)
+                                if not claim.get("evidence"):
+                                    claim["evidence"] = quote
 
-            # Re-evaluate status with distinct registrable domains
-            domains = {
-                _extract_registrable_domain(u)
-                for u in claim["source_urls"]
-                if _extract_registrable_domain(u)
-            }
-            if len(domains) >= 2:
-                claim["status"] = "supported"
-            elif len(domains) == 1:
-                claim["status"] = "single_source"
-            else:
-                claim["status"] = "unsupported"
-            claim["source_url"] = claim["source_urls"][0] if claim["source_urls"] else None
-        except (SearchError, LLMError, Exception):
-            # Swallow any search or LLM error; leaves claim as single_source
-            pass
+                # Re-evaluate status with distinct registrable domains
+                domains = {
+                    _extract_registrable_domain(u)
+                    for u in claim["source_urls"]
+                    if _extract_registrable_domain(u)
+                }
+                if len(domains) >= 2:
+                    claim["status"] = "supported"
+                elif len(domains) == 1:
+                    claim["status"] = "single_source"
+                else:
+                    claim["status"] = "unsupported"
+                claim["source_url"] = claim["source_urls"][0] if claim["source_urls"] else None
+            except (SearchError, LLMError, Exception):
+                # Swallow any search or LLM error; leaves claim as single_source
+                pass
 
     # -------------------------------------------------------------
     # Step 4: Final status sanity check
@@ -508,9 +526,9 @@ def check_facts(topic: str, sources: List[Dict[str, str]]) -> List[Dict[str, Any
             claim["evidence"] = ""
 
     # -------------------------------------------------------------
-    # Step 5: Cap total returned sources at 12
+    # Step 5: Cap total returned sources
     # -------------------------------------------------------------
-    capped = _cap_sources(sources, claims, max_sources=12)
+    capped = _cap_sources(sources, claims, max_sources=sources_cap)
     sources.clear()
     sources.extend(capped)
 

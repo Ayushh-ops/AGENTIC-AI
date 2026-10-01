@@ -29,6 +29,21 @@ EXCLUDED_DOMAINS = [
     "pinterest.com",
 ]
 
+ACADEMIC_INCLUDE_DOMAINS = [
+    "arxiv.org",
+    "nature.com",
+    "science.org",
+    "sciencedirect.com",
+    "springer.com",
+    "ieee.org",
+    "acm.org",
+    "nih.gov",
+    "pubmed.ncbi.nlm.nih.gov",
+    "jstor.org",
+    "plos.org",
+    "mdpi.com",
+]
+
 
 class SearchError(Exception):
     """Exception raised when a search operation fails or API key is missing."""
@@ -46,36 +61,14 @@ def _is_excluded_domain(url: str) -> bool:
         return False
 
 
-def search(query: str, max_results: int = 5) -> List[Dict[str, str]]:
-    """
-    Query the Tavily Search API and return normalized search results.
-
-    Args:
-        query: Search query string.
-        max_results: Maximum number of search results to return (default 5).
-
-    Returns:
-        List of dicts, each containing 'title', 'url', and 'content' (truncated to 800 chars).
-
-    Raises:
-        SearchError: If TAVILY_API_KEY is not configured or the request fails.
-    """
+def _execute_tavily_request(payload: dict) -> List[Dict[str, str]]:
+    """Execute a single HTTP request to Tavily with retries and rate limit handling."""
     counter = search_call_counter.get()
     if counter is not None:
         counter.append(1)
 
-    api_key = settings.tavily_api_key
-    if not api_key:
-        raise SearchError("Tavily API key is not configured.")
-
     headers = {
         "Content-Type": "application/json",
-    }
-    payload = {
-        "api_key": api_key,
-        "query": query,
-        "max_results": max_results,
-        "exclude_domains": EXCLUDED_DOMAINS,
     }
 
     max_retries = 2
@@ -120,3 +113,67 @@ def search(query: str, max_results: int = 5) -> List[Dict[str, str]]:
             raise SearchError(f"Unexpected error in search service: {exc}") from exc
 
     raise SearchError("Tavily search failed after retries.")
+
+
+def search(
+    query: str,
+    max_results: int = 5,
+    research_type: str = "general",
+) -> List[Dict[str, str]]:
+    """
+    Query the Tavily Search API and return normalized search results.
+
+    Args:
+        query: Search query string.
+        max_results: Maximum number of search results to return (default 5).
+        research_type: 'general', 'news', or 'academic' (default 'general').
+
+    Returns:
+        List of dicts, each containing 'title', 'url', and 'content' (truncated to 800 chars).
+
+    Raises:
+        SearchError: If TAVILY_API_KEY is not configured or the request fails.
+    """
+    api_key = settings.tavily_api_key
+    if not api_key:
+        raise SearchError("Tavily API key is not configured.")
+
+    base_payload = {
+        "api_key": api_key,
+        "query": query,
+        "max_results": max_results,
+    }
+
+    type_clean = (research_type or "general").strip().lower()
+
+    if type_clean == "news":
+        payload = {
+            **base_payload,
+            "topic": "news",
+            "days": 30,
+            "exclude_domains": EXCLUDED_DOMAINS,
+        }
+        return _execute_tavily_request(payload)
+
+    elif type_clean == "academic":
+        payload = {
+            **base_payload,
+            "include_domains": ACADEMIC_INCLUDE_DOMAINS,
+        }
+        results = _execute_tavily_request(payload)
+        # If academic search returns ZERO results, retry once without include_domains
+        if not results:
+            fallback_payload = {
+                **base_payload,
+                "exclude_domains": EXCLUDED_DOMAINS,
+            }
+            results = _execute_tavily_request(fallback_payload)
+        return results
+
+    else:
+        # general (default)
+        payload = {
+            **base_payload,
+            "exclude_domains": EXCLUDED_DOMAINS,
+        }
+        return _execute_tavily_request(payload)

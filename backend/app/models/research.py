@@ -2,8 +2,21 @@
 Pydantic models for research requests, responses, sources, and claims.
 """
 
-from typing import List, Optional
+from enum import Enum
+from typing import Any, List, Optional
 from pydantic import BaseModel, Field, field_validator
+
+
+class ResearchType(str, Enum):
+    general = "general"
+    news = "news"
+    academic = "academic"
+
+
+class ResearchDepth(str, Enum):
+    quick = "quick"
+    standard = "standard"
+    deep = "deep"
 
 
 class ResearchRequest(BaseModel):
@@ -68,6 +81,14 @@ class AskRequest(BaseModel):
         max_length=200,
         description="User message or research topic (non-empty, max 200 characters).",
     )
+    research_type: Optional[ResearchType] = Field(
+        default=ResearchType.general,
+        description="Optional research type: 'general' | 'news' | 'academic' (default 'general').",
+    )
+    depth: Optional[ResearchDepth] = Field(
+        default=ResearchDepth.standard,
+        description="Optional research depth: 'quick' | 'standard' | 'deep' (default 'standard').",
+    )
 
     @field_validator("message")
     @classmethod
@@ -76,6 +97,20 @@ class AskRequest(BaseModel):
         if not stripped:
             raise ValueError("Message must not be empty or whitespace only.")
         return stripped
+
+    @field_validator("research_type", mode="before")
+    @classmethod
+    def default_research_type(cls, value: Any) -> Any:
+        if value is None:
+            return ResearchType.general
+        return value
+
+    @field_validator("depth", mode="before")
+    @classmethod
+    def default_depth(cls, value: Any) -> Any:
+        if value is None:
+            return ResearchDepth.standard
+        return value
 
 
 class AskResponse(BaseModel):

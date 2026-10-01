@@ -152,7 +152,21 @@ def ask_assistant(request: AskRequest) -> AskResponse:
                     detail="API keys not configured.",
                 )
             try:
-                result = run_research(topic=request.message)
+                depth_val = (
+                    request.depth.value
+                    if hasattr(request.depth, "value")
+                    else str(request.depth or "standard")
+                )
+                type_val = (
+                    request.research_type.value
+                    if hasattr(request.research_type, "value")
+                    else str(request.research_type or "general")
+                )
+                result = run_research(
+                    topic=request.message,
+                    depth=depth_val,
+                    research_type=type_val,
+                )
                 return AskResponse(
                     mode="research",
                     reply=None,

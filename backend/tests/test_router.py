@@ -96,7 +96,11 @@ def test_quantum_computing_2026_research_no_classifier_call(monkeypatch):
                 data = response.json()
                 assert data["mode"] == "research"
                 assert data["research"]["topic"] == "Quantum computing in 2026"
-                mock_run.assert_called_once_with(topic="Quantum computing in 2026")
+                mock_run.assert_called_once_with(
+                    topic="Quantum computing in 2026",
+                    depth="standard",
+                    research_type="general",
+                )
                 # Classify was called but made NO chat calls
                 mock_chat.assert_not_called()
 
@@ -117,7 +121,11 @@ def test_unclear_one_word_input_one_classifier_call(monkeypatch):
             call_kwargs = mock_classifier_chat.call_args[1]
             assert call_kwargs.get("max_tokens") == 5
             assert call_kwargs.get("temperature") == 0.0
-            mock_run.assert_called_once_with(topic="quantum")
+            mock_run.assert_called_once_with(
+                topic="quantum",
+                depth="standard",
+                research_type="general",
+            )
 
 
 def test_classifier_failure_defaults_to_research(monkeypatch):
@@ -131,7 +139,11 @@ def test_classifier_failure_defaults_to_research(monkeypatch):
             assert response.status_code == 200
             data = response.json()
             assert data["mode"] == "research"
-            mock_run.assert_called_once_with(topic="quantum")
+            mock_run.assert_called_once_with(
+                topic="quantum",
+                depth="standard",
+                research_type="general",
+            )
 
 
 def test_chat_reply_uses_exactly_one_llm_call_and_zero_search_calls(monkeypatch):
@@ -161,7 +173,11 @@ def test_ask_research_path_calls_workflow(monkeypatch):
         data = response.json()
         assert data["mode"] == "research"
         assert data["research"]["topic"] == "Quantum computing in 2026"
-        mock_run.assert_called_once_with(topic="Compare solar and wind energy")
+        mock_run.assert_called_once_with(
+            topic="Compare solar and wind energy",
+            depth="standard",
+            research_type="general",
+        )
 
 
 def test_ask_validation_errors():
