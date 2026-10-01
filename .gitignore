@@ -71,3 +71,7 @@ frontend/.flutter-plugins*
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Local reference mockups / prototypes
+reference/
+
