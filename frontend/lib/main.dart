@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'api/api_service.dart';
 import 'screens/home_screen.dart';
 import 'theme/app_theme.dart';
 
@@ -37,7 +38,8 @@ void main() async {
 }
 
 class ResearchAssistantApp extends StatelessWidget {
-  const ResearchAssistantApp({super.key});
+  final ApiService? apiService;
+  const ResearchAssistantApp({super.key, this.apiService});
 
   @override
   Widget build(BuildContext context) {
@@ -50,7 +52,7 @@ class ResearchAssistantApp extends StatelessWidget {
           theme: AppTheme.lightTheme,
           darkTheme: AppTheme.darkTheme,
           themeMode: currentMode,
-          home: const HomeScreen(),
+          home: HomeScreen(apiService: apiService),
         );
       },
     );

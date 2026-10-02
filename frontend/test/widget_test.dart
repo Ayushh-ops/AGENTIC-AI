@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -6,6 +7,19 @@ import 'package:mobile_app/main.dart';
 import 'package:mobile_app/models/history_item.dart';
 import 'package:mobile_app/utils/report_export_helper.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+class _TestMockApiService extends ApiService {
+  Completer<AskResponse> completer = Completer<AskResponse>();
+
+  @override
+  Future<AskResponse> ask(
+    String message, {
+    String? researchType = 'general',
+    String? depth = 'standard',
+  }) {
+    return completer.future;
+  }
+}
 
 void main() {
   test('Markdown builder includes title, tally, and claim status', () {
@@ -272,6 +286,131 @@ void main() {
         }
       }
     }
+  });
+
+  testWidgets('Composer button placement uses MainAxisAlignment.spaceBetween', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1000, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    await tester.pumpWidget(const ResearchAssistantApp());
+    await tester.pumpAndSettle();
+
+    // Landing composer controls row
+    final landingRowFinder = find.byKey(const ValueKey('composer_controls_row'));
+    expect(landingRowFinder, findsOneWidget);
+    final landingRow = tester.widget<Row>(landingRowFinder);
+    expect(landingRow.mainAxisAlignment, MainAxisAlignment.spaceBetween);
+
+    // Enter workspace empty state
+    final getStartedFinder = find.widgetWithText(FilledButton, 'Get started');
+    await tester.tap(getStartedFinder.first);
+    await tester.pumpAndSettle();
+
+    // Workspace empty state composer controls row
+    final wsRowFinder = find.byKey(const ValueKey('composer_controls_row'));
+    expect(wsRowFinder, findsOneWidget);
+    final wsRow = tester.widget<Row>(wsRowFinder);
+    expect(wsRow.mainAxisAlignment, MainAxisAlignment.spaceBetween);
+  });
+
+  testWidgets('Stable top bar row 1 has height 64 and About/theme pinned to right across empty, loading, and result', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1000, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    final mockApi = _TestMockApiService();
+    await tester.pumpWidget(ResearchAssistantApp(apiService: mockApi));
+    await tester.pumpAndSettle();
+
+    // Enter workspace empty state
+    await tester.tap(find.widgetWithText(FilledButton, 'Get started').first);
+    await tester.pumpAndSettle();
+
+    // --- 1. EMPTY STATE ---
+    final row1Finder = find.byKey(const ValueKey('top_bar_row_1'));
+    expect(row1Finder, findsOneWidget);
+    expect(tester.getSize(row1Finder).height, 64.0);
+    final double row1Top = tester.getTopLeft(row1Finder).dy;
+
+    final aboutFinder = find.widgetWithText(TextButton, 'About');
+    final themeFinder = find.byTooltip('Switch to dark mode');
+    expect(aboutFinder, findsOneWidget);
+    expect(themeFinder, findsOneWidget);
+
+    final row1RectEmpty = tester.getRect(row1Finder);
+    final themeRectEmpty = tester.getRect(themeFinder);
+    final aboutRectEmpty = tester.getRect(aboutFinder);
+    expect(row1RectEmpty.right - themeRectEmpty.right, lessThanOrEqualTo(24.0));
+    expect(aboutRectEmpty.right, lessThanOrEqualTo(themeRectEmpty.left));
+    expect(find.byKey(const ValueKey('top_bar_row_2')), findsNothing);
+
+    // --- 2. LOADING STATE ---
+    await tester.enterText(find.byType(TextField), 'Test Quantum');
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, 'Research'));
+    await tester.pump(); // starts request without settling
+
+    expect(tester.getSize(row1Finder).height, 64.0);
+    expect(tester.getTopLeft(row1Finder).dy, row1Top);
+    final themeRectLoading = tester.getRect(themeFinder);
+    expect(row1RectEmpty.right - themeRectLoading.right, lessThanOrEqualTo(24.0));
+    expect(find.byKey(const ValueKey('top_bar_row_2')), findsOneWidget);
+
+    // --- 3. RESULT STATE ---
+    mockApi.completer.complete(
+      const AskResponse(
+        mode: 'research',
+        research: ResearchResponse(
+          topic: 'Test Quantum',
+          reportMarkdown: 'Result content',
+          sources: [
+            SourceItem(title: 'Src', url: 'https://example.com', content: 'Info'),
+          ],
+          claims: [
+            ClaimItem(
+              statement: 'Claim statement',
+              status: 'supported',
+              evidence: 'Info',
+              sourceUrls: ['https://example.com'],
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.getSize(row1Finder).height, 64.0);
+    expect(tester.getTopLeft(row1Finder).dy, row1Top);
+    final themeRectResult = tester.getRect(themeFinder);
+    expect(row1RectEmpty.right - themeRectResult.right, lessThanOrEqualTo(24.0));
+    expect(find.byKey(const ValueKey('top_bar_row_2')), findsOneWidget);
+  });
+
+  testWidgets('Seamless transition between landing and workspace with scroll reset on return', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1000, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    await tester.pumpWidget(const ResearchAssistantApp());
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('landing_content')), findsOneWidget);
+    expect(find.byKey(const ValueKey('workspace_content')), findsNothing);
+
+    // Tap Get started to transition to workspace
+    await tester.tap(find.widgetWithText(FilledButton, 'Get started').first);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('landing_content')), findsNothing);
+    expect(find.byKey(const ValueKey('workspace_content')), findsOneWidget);
+
+    // Tap wordmark to return to landing
+    await tester.tap(find.textContaining('Multi Agent').first);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('landing_content')), findsOneWidget);
+    expect(find.byKey(const ValueKey('workspace_content')), findsNothing);
   });
 }
 

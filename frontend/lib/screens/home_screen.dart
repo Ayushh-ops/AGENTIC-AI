@@ -17,7 +17,8 @@ import '../widgets/dynamic_background.dart';
 import '../widgets/interactive_controls.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final ApiService? apiService;
+  const HomeScreen({super.key, this.apiService});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -26,7 +27,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin {
   final TextEditingController _topicController = TextEditingController();
-  final ApiService _apiService = ApiService();
+  late final ApiService _apiService = widget.apiService ?? ApiService();
 
   bool _showLanding = true;
   late AnimationController _pulseController;
@@ -761,33 +762,104 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  void _enterWorkspace() {
+    if (!_showLanding) return;
+    setState(() {
+      _showLanding = false;
+    });
+  }
+
+  void _returnToLanding() {
+    if (_showLanding) return;
+    if (_landingScrollController.hasClients) {
+      _landingScrollController.jumpTo(0.0);
+    }
+    setState(() {
+      _showLanding = true;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 250),
-      switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeOutCubic,
-      transitionBuilder: (child, animation) {
-        return FadeTransition(
-          opacity: animation,
-          child: SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0, 0.015),
-              end: Offset.zero,
-            ).animate(animation),
-            child: child,
-          ),
-        );
-      },
-      child: _showLanding
-          ? KeyedSubtree(
-              key: const ValueKey('landing_screen'),
-              child: _buildLandingScreen(context),
+    final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
+    final bool isWide = screenWidth >= 860;
+    final bool canSubmit =
+        !_isLoading && _topicController.text.trim().isNotEmpty;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Scaffold(
+      drawer: (!isWide && !_showLanding)
+          ? Drawer(
+              width: 288,
+              backgroundColor: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
+              shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+              child: _buildSidebarContent(isDrawer: true),
             )
-          : KeyedSubtree(
-              key: const ValueKey('workspace_screen'),
-              child: _buildWorkspaceScreen(context),
+          : null,
+      body: DynamicBackground(
+        isLoading: _isLoading,
+        accentColor: isDark ? AppTheme.darkAt : AppTheme.lightAt,
+        child: Column(
+          children: [
+            _buildPersistentTopBar(
+              context: context,
+              isDark: isDark,
+              screenWidth: screenWidth,
+              isWide: isWide,
+              canSubmit: canSubmit,
             ),
+            Expanded(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 350),
+                switchInCurve: Curves.easeInOutCubic,
+                switchOutCurve: Curves.easeInOutCubic,
+                transitionBuilder: (child, animation) {
+                  final isLanding =
+                      (child.key as ValueKey<String>?)?.value == 'landing_content';
+                  if (isLanding) {
+                    return FadeTransition(
+                      opacity: animation,
+                      child: SlideTransition(
+                        position: Tween<Offset>(
+                          begin: const Offset(0, -0.015),
+                          end: Offset.zero,
+                        ).animate(animation),
+                        child: child,
+                      ),
+                    );
+                  } else {
+                    return FadeTransition(
+                      opacity: animation,
+                      child: child,
+                    );
+                  }
+                },
+                child: _showLanding
+                    ? KeyedSubtree(
+                        key: const ValueKey('landing_content'),
+                        child: _buildLandingContent(
+                          context,
+                          isDark,
+                          screenWidth,
+                          screenHeight,
+                        ),
+                      )
+                    : KeyedSubtree(
+                        key: const ValueKey('workspace_content'),
+                        child: _buildWorkspaceContent(
+                          context,
+                          isDark,
+                          screenWidth,
+                          isWide,
+                          canSubmit,
+                        ),
+                      ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -817,145 +889,113 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  Widget _buildLandingScreen(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final screenHeight = MediaQuery.of(context).size.height;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+  Widget _buildLandingContent(
+    BuildContext context,
+    bool isDark,
+    double screenWidth,
+    double screenHeight,
+  ) {
     final double contentPad = (screenWidth * 0.04).clamp(16.0, 32.0);
 
-    return Scaffold(
-      body: DynamicBackground(
-        isLoading: false,
-        accentColor: isDark ? AppTheme.darkAt : AppTheme.lightAt,
-        child: Column(
-          children: [
-            _buildLandingTopBar(context, isDark, screenWidth),
-            Expanded(
-              child: SingleChildScrollView(
-                controller: _landingScrollController,
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 1120),
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(horizontal: contentPad),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _buildLandingHero(context, isDark, screenWidth, screenHeight),
-                          _buildLandingHowItWorks(context, isDark, screenWidth),
-                          _buildLandingHonestByDesign(context, isDark, screenWidth),
-                          _buildLandingCta(context, isDark, screenWidth),
-                          _buildLandingFooter(context, isDark, screenWidth),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+    return SingleChildScrollView(
+      controller: _landingScrollController,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1120),
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: contentPad),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildLandingHero(context, isDark, screenWidth, screenHeight),
+                _buildLandingHowItWorks(context, isDark, screenWidth),
+                _buildLandingHonestByDesign(context, isDark, screenWidth),
+                _buildLandingFooter(context, isDark, screenWidth),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildLandingTopBar(BuildContext context, bool isDark, double screenWidth) {
-    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
-    final bg = isDark ? AppTheme.darkBg : AppTheme.lightBg;
+  Widget _buildLandingTopBarRow1(
+    BuildContext context,
+    bool isDark,
+    double screenWidth,
+  ) {
     final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
     final acc = isDark ? AppTheme.darkAcc : AppTheme.lightAcc;
     final onAcc = isDark ? AppTheme.darkOnAcc : AppTheme.lightOnAcc;
-    final double hPad = (screenWidth * 0.04).clamp(16.0, 48.0);
     final bool showTextLinks = screenWidth >= 860;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: bg.withValues(alpha: 0.85),
-        border: Border(bottom: BorderSide(color: line, width: 1.0)),
-      ),
-      padding: EdgeInsets.symmetric(vertical: 14, horizontal: hPad),
-      child: SafeArea(
-        bottom: false,
-        child: Row(
-          children: [
-            Expanded(
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: _buildBrandWordmark(isDark),
-              ),
-            ),
-            const SizedBox(width: 8),
-            if (showTextLinks) ...[
-              TextButton(
-                onPressed: () => _scrollToSection(_howItWorksKey),
-                style: TextButton.styleFrom(
-                  foregroundColor: mute,
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                ),
-                child: Text(
-                  'How it works',
-                  style: AppTheme.bodyFont(fontSize: 14, color: mute),
-                ),
-              ),
-              const SizedBox(width: 8),
-              TextButton(
-                onPressed: () => _scrollToSection(_claimsKey),
-                style: TextButton.styleFrom(
-                  foregroundColor: mute,
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                ),
-                child: Text(
-                  'Claims',
-                  style: AppTheme.bodyFont(fontSize: 14, color: mute),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Tooltip(
-                message: 'About Multi Agent Research Assistant',
-                child: TextButton(
-                  onPressed: () => _showAboutDialog(context),
-                  style: TextButton.styleFrom(
-                    foregroundColor: mute,
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  ),
-                  child: Text(
-                    'About',
-                    style: AppTheme.bodyFont(fontSize: 14, color: mute),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-            ],
-            _buildIconButton(
-              icon: isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
-              tooltip: isDark ? 'Switch to light mode' : 'Switch to dark mode',
-              isDark: isDark,
-              size: 38,
-              onPressed: _toggleTheme,
-            ),
-            const SizedBox(width: 12),
-            FilledButton(
-              onPressed: () => setState(() => _showLanding = false),
-              style: FilledButton.styleFrom(
-                backgroundColor: acc,
-                foregroundColor: onAcc,
-                minimumSize: const Size(0, 42),
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-                ),
-              ),
-              child: Text(
-                'Get started',
-                style: AppTheme.bodyFont(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
+    return Row(
+      key: const ValueKey('landing_top_bar_row_1'),
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Expanded(
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: _buildBrandWordmark(isDark),
+          ),
         ),
-      ),
+        const SizedBox(width: 8),
+        if (showTextLinks) ...[
+          TextButton(
+            onPressed: () => _scrollToSection(_howItWorksKey),
+            style: TextButton.styleFrom(
+              foregroundColor: mute,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            ),
+            child: Text(
+              'How it works',
+              style: AppTheme.bodyFont(fontSize: 14, color: mute),
+            ),
+          ),
+          const SizedBox(width: 8),
+          TextButton(
+            onPressed: () => _scrollToSection(_claimsKey),
+            style: TextButton.styleFrom(
+              foregroundColor: mute,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            ),
+            child: Text(
+              'Claims',
+              style: AppTheme.bodyFont(fontSize: 14, color: mute),
+            ),
+          ),
+          const SizedBox(width: 8),
+          _buildAboutLink(isDark),
+          const SizedBox(width: 8),
+        ],
+        _buildIconButton(
+          icon: isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+          tooltip: isDark ? 'Switch to light mode' : 'Switch to dark mode',
+          isDark: isDark,
+          size: 38,
+          onPressed: _toggleTheme,
+        ),
+        const SizedBox(width: 12),
+        FilledButton(
+          onPressed: _enterWorkspace,
+          style: FilledButton.styleFrom(
+            backgroundColor: acc,
+            foregroundColor: onAcc,
+            minimumSize: const Size(0, 42),
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+            ),
+          ),
+          child: Text(
+            'Get started',
+            style: AppTheme.bodyFont(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -1162,6 +1202,9 @@ class _HomeScreenState extends State<HomeScreen>
               // Directly BELOW the box, one row: LEFT = Type chips (General/News/Academic, pill segmented, always visible) + a "Filters" button (shows "Filters · Standard"). RIGHT = Research button. Under 700px: chips/Filters row, then full-width Research button.
               if (!isNarrow)
                 Row(
+                  key: const ValueKey('composer_controls_row'),
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     Flexible(
                       child: SingleChildScrollView(
@@ -1913,62 +1956,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildLandingCta(BuildContext context, bool isDark, double screenWidth) {
-    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
-    final surface = isDark ? AppTheme.darkSurface : AppTheme.lightSurface;
-    final ink = isDark ? AppTheme.darkInk : AppTheme.lightInk;
-    final acc = isDark ? AppTheme.darkAcc : AppTheme.lightAcc;
-    final onAcc = isDark ? AppTheme.darkOnAcc : AppTheme.lightOnAcc;
-    final h2Size = (screenWidth * 0.04).clamp(30.0, 44.0);
-
-    return Container(
-      margin: const EdgeInsets.only(top: 90),
-      padding: const EdgeInsets.symmetric(vertical: 64, horizontal: 24),
-      decoration: BoxDecoration(
-        color: surface,
-        borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: line, width: 1.0),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 640),
-            child: Text(
-              'Ask your first question.',
-              textAlign: TextAlign.center,
-              style: AppTheme.displayFont(
-                fontSize: h2Size,
-                color: ink,
-                height: 1.1,
-              ),
-            ),
-          ),
-          const SizedBox(height: 22),
-          FilledButton(
-            onPressed: () => setState(() => _showLanding = false),
-            style: FilledButton.styleFrom(
-              backgroundColor: acc,
-              foregroundColor: onAcc,
-              minimumSize: const Size(0, 52),
-              padding: const EdgeInsets.symmetric(horizontal: 32),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-              ),
-            ),
-            child: Text(
-              'Get started',
-              style: AppTheme.bodyFont(
-                fontSize: 17,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildLandingFooter(BuildContext context, bool isDark, double screenWidth) {
     final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
 
@@ -1999,58 +1986,51 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildWorkspaceScreen(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final bool isWide = screenWidth >= 860;
-    final bool canSubmit =
-        !_isLoading && _topicController.text.trim().isNotEmpty;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+  Widget _buildWorkspaceContent(
+    BuildContext context,
+    bool isDark,
+    double screenWidth,
+    bool isWide,
+    bool canSubmit,
+  ) {
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
 
-    final appBar = _buildTopBar(
-      context: context,
-      isWide: isWide,
-      canSubmit: canSubmit,
-      isDark: isDark,
-    );
-
-    return Scaffold(
-      appBar: appBar,
-      drawer: isWide
-          ? null
-          : Drawer(
-              width: 288,
-              backgroundColor: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
-              shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-              child: _buildSidebarContent(isDrawer: true),
-            ),
-      body: DynamicBackground(
-        isLoading: _isLoading,
-        accentColor: isDark ? AppTheme.darkAt : AppTheme.lightAt,
-        child: isWide
-            ? Row(
-                children: [
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 220),
-                    curve: Curves.easeInOut,
-                    width: _isSidebarOpen ? 288 : 0,
-                    child: _isSidebarOpen
-                        ? _buildSidebarContent(isDrawer: false)
-                        : const SizedBox.shrink(),
-                  ),
-                  if (_isSidebarOpen)
-                    VerticalDivider(
-                      width: 1,
-                      thickness: 1,
-                      color: isDark ? AppTheme.darkLines : AppTheme.lightLines,
+    return isWide
+        ? Row(
+            children: [
+              TweenAnimationBuilder<double>(
+                tween: Tween<double>(
+                  begin: 0.0,
+                  end: _isSidebarOpen ? 1.0 : 0.0,
+                ),
+                duration: const Duration(milliseconds: 350),
+                curve: Curves.easeInOutCubic,
+                builder: (context, factor, child) {
+                  if (factor <= 0.001) return const SizedBox.shrink();
+                  return Container(
+                    decoration: BoxDecoration(
+                      border: Border(right: BorderSide(color: line, width: 1.0)),
                     ),
-                  Expanded(
-                    child: _buildMainContent(canSubmit: canSubmit, isWide: true),
-                  ),
-                ],
-              )
-            : _buildMainContent(canSubmit: canSubmit, isWide: false),
-      ),
-    );
+                    child: ClipRect(
+                      child: Align(
+                        alignment: Alignment.topLeft,
+                        widthFactor: factor,
+                        child: SizedBox(
+                          width: 288.0,
+                          child: child,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+                child: _buildSidebarContent(isDrawer: false),
+              ),
+              Expanded(
+                child: _buildMainContent(canSubmit: canSubmit, isWide: true),
+              ),
+            ],
+          )
+        : _buildMainContent(canSubmit: canSubmit, isWide: false);
   }
 
   Widget _buildSidebarContent({required bool isDrawer}) {
@@ -2310,110 +2290,149 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  PreferredSizeWidget _buildTopBar({
+  Widget _buildPersistentTopBar({
     required BuildContext context,
+    required bool isDark,
+    required double screenWidth,
     required bool isWide,
     required bool canSubmit,
-    required bool isDark,
   }) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final bool isNarrow = screenWidth < 700;
-    final bool isSidebarVisible = isWide && _isSidebarOpen;
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+    final bg = isDark ? AppTheme.darkBg : AppTheme.lightBg;
     final double hPad = screenWidth >= 1000 ? 24.0 : 16.0;
     final bool hasResultOrActivity =
         _isLoading || _askResponse != null || _errorMessage != null;
-    final double topBarHeight = hasResultOrActivity ? (isNarrow ? 164.0 : 118.0) : 68.0;
+    final bool isNarrow = screenWidth < 700;
 
-    return PreferredSize(
-      preferredSize: Size.fromHeight(topBarHeight),
-      child: Container(
-        decoration: BoxDecoration(
-          color: isDark ? AppTheme.darkBg : AppTheme.lightBg,
-          border: Border(
-            bottom: BorderSide(
-              color: isDark ? AppTheme.darkLines : AppTheme.lightLines,
-              width: 1.0,
+    return Container(
+      decoration: BoxDecoration(
+        color: bg.withValues(alpha: 0.85),
+        border: Border(bottom: BorderSide(color: line, width: 1.0)),
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Row 1: Fixed height 64.0 across ALL workspace states and landing
+            SizedBox(
+              key: const ValueKey('top_bar_row_1'),
+              height: 64.0,
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: hPad),
+                child: _showLanding
+                    ? _buildLandingTopBarRow1(context, isDark, screenWidth)
+                    : _buildWorkspaceTopBarRow1(context, isDark, isWide),
+              ),
             ),
-          ),
-        ),
-        child: SafeArea(
-          bottom: false,
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(hPad, 10, hPad, 10),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Row 1: sidebar-toggle icon button, [wordmark ONLY if sidebar is hidden], spacer, About text button, theme icon button.
-                Row(
-                  children: [
-                    Builder(
-                      builder: (ctx) => _buildIconButton(
-                        icon: Icons.menu,
-                        tooltip: 'Toggle sidebar',
-                        isDark: isDark,
-                        size: 36,
-                        onPressed: () {
-                          if (isWide) {
-                            setState(() {
-                              _isSidebarOpen = !_isSidebarOpen;
-                            });
-                          } else {
-                            Scaffold.of(ctx).openDrawer();
-                          }
-                        },
-                      ),
-                    ),
-                    if (!isSidebarVisible) ...[
-                      const SizedBox(width: 10),
-                      Flexible(
-                        child: _buildBrandWordmark(isDark),
-                      ),
-                    ],
-                    const Spacer(),
-                    _buildAboutLink(isDark),
-                    const SizedBox(width: 4),
-                    _buildIconButton(
-                      icon: isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
-                      tooltip: isDark ? 'Switch to light mode' : 'Switch to dark mode',
-                      isDark: isDark,
-                      size: 36,
-                      onPressed: _toggleTheme,
-                    ),
-                  ],
-                ),
-                if (hasResultOrActivity) ...[
-                  const SizedBox(height: 10),
-                  // Compact top-bar search (input + Filters + Research, no big chips)
-                  if (!isNarrow)
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildCompactSearchInput(canSubmit: canSubmit, isDark: isDark),
-                        ),
-                        const SizedBox(width: 8),
-                        _buildFiltersButton(isDark),
-                        const SizedBox(width: 8),
-                        _buildResearchButton(canSubmit: canSubmit, isDark: isDark, fullWidth: false, height: 40),
-                      ],
+            // Row 2: Only in workspace during loading/result, animated with AnimatedSize (200ms)
+            AnimatedSize(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeInOutCubic,
+              child: (!_showLanding && hasResultOrActivity)
+                  ? Padding(
+                      key: const ValueKey('top_bar_row_2'),
+                      padding: EdgeInsets.fromLTRB(hPad, 0, hPad, 10),
+                      child: isNarrow
+                          ? Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _buildCompactSearchInput(
+                                  canSubmit: canSubmit,
+                                  isDark: isDark,
+                                ),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    _buildFiltersButton(isDark),
+                                    const Spacer(),
+                                    _buildResearchButton(
+                                      canSubmit: canSubmit,
+                                      isDark: isDark,
+                                      fullWidth: false,
+                                      height: 40,
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            )
+                          : Row(
+                              children: [
+                                Expanded(
+                                  child: _buildCompactSearchInput(
+                                    canSubmit: canSubmit,
+                                    isDark: isDark,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                _buildFiltersButton(isDark),
+                                const SizedBox(width: 8),
+                                _buildResearchButton(
+                                  canSubmit: canSubmit,
+                                  isDark: isDark,
+                                  fullWidth: false,
+                                  height: 40,
+                                ),
+                              ],
+                            ),
                     )
-                  else ...[
-                    _buildCompactSearchInput(canSubmit: canSubmit, isDark: isDark),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        _buildFiltersButton(isDark),
-                        const Spacer(),
-                        _buildResearchButton(canSubmit: canSubmit, isDark: isDark, fullWidth: false, height: 40),
-                      ],
-                    ),
-                  ],
-                ],
-              ],
+                  : const SizedBox.shrink(),
             ),
-          ),
+          ],
         ),
       ),
+    );
+  }
+
+  Widget _buildWorkspaceTopBarRow1(
+    BuildContext context,
+    bool isDark,
+    bool isWide,
+  ) {
+    final bool isSidebarVisible = isWide && _isSidebarOpen;
+
+    return Row(
+      key: const ValueKey('workspace_top_bar_row_1'),
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        // Hamburger button at left (same x/y always)
+        Builder(
+          builder: (ctx) => _buildIconButton(
+            icon: Icons.menu,
+            tooltip: 'Toggle sidebar',
+            isDark: isDark,
+            size: 36,
+            onPressed: () {
+              if (isWide) {
+                setState(() {
+                  _isSidebarOpen = !_isSidebarOpen;
+                });
+              } else {
+                Scaffold.of(ctx).openDrawer();
+              }
+            },
+          ),
+        ),
+        // Wordmark next to hamburger ONLY when sidebar is closed
+        if (!isSidebarVisible) ...[
+          const SizedBox(width: 10),
+          Flexible(
+            child: _buildBrandWordmark(isDark),
+          ),
+        ],
+        const Spacer(),
+        // About + theme icon pinned to the far RIGHT edge
+        _buildAboutLink(isDark),
+        const SizedBox(width: 4),
+        _buildIconButton(
+          icon: isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+          tooltip: isDark ? 'Switch to light mode' : 'Switch to dark mode',
+          isDark: isDark,
+          size: 36,
+          onPressed: _toggleTheme,
+        ),
+      ],
     );
   }
 
@@ -2471,7 +2490,7 @@ class _HomeScreenState extends State<HomeScreen>
             );
           }
         } else {
-          setState(() => _showLanding = true);
+          _returnToLanding();
         }
       },
       borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
@@ -2500,6 +2519,7 @@ class _HomeScreenState extends State<HomeScreen>
                 child: Text(
                   'Multi Agent\nResearch Assistant',
                   softWrap: true,
+                  overflow: TextOverflow.ellipsis,
                   style: AppTheme.displayFont(
                     fontSize: 20,
                     color: ink,
@@ -2868,15 +2888,17 @@ class _HomeScreenState extends State<HomeScreen>
             ),
           ),
           const SizedBox(width: 12),
-          AnimatedDefaultTextStyle(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeInOut,
-            style: AppTheme.bodyFont(
-              fontSize: 14,
-              color: isActive ? ink : mute,
-              fontWeight: isActive ? FontWeight.w500 : FontWeight.normal,
+          Expanded(
+            child: AnimatedDefaultTextStyle(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeInOut,
+              style: AppTheme.bodyFont(
+                fontSize: 14,
+                color: isActive ? ink : mute,
+                fontWeight: isActive ? FontWeight.w500 : FontWeight.normal,
+              ),
+              child: Text(label),
             ),
-            child: Text(label),
           ),
         ],
       ),
@@ -3766,8 +3788,10 @@ class _HistoryTileState extends State<_HistoryTile> {
                       ),
                       if (!isChat) ...[
                         const SizedBox(height: 2),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
+                        Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: 6,
+                          runSpacing: 2,
                           children: [
                             if (widget.item.formattedTypeAndDepth != null)
                               Text(
@@ -3777,9 +3801,7 @@ class _HistoryTileState extends State<_HistoryTile> {
                                   color: mute,
                                 ),
                               ),
-                            if (widget.item.isImported) ...[
-                              if (widget.item.formattedTypeAndDepth != null)
-                                const SizedBox(width: 6),
+                            if (widget.item.isImported)
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                                 decoration: BoxDecoration(
@@ -3796,7 +3818,6 @@ class _HistoryTileState extends State<_HistoryTile> {
                                   ),
                                 ),
                               ),
-                            ],
                           ],
                         ),
                       ],
