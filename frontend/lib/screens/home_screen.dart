@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -10,6 +11,8 @@ import '../api/api_service.dart';
 import '../main.dart';
 import '../models/history_item.dart';
 import '../theme/app_theme.dart';
+import '../utils/file_helper.dart';
+import '../utils/report_export_helper.dart';
 import '../widgets/dynamic_background.dart';
 import '../widgets/interactive_controls.dart';
 
@@ -336,6 +339,90 @@ class _HomeScreenState extends State<HomeScreen>
     if (Navigator.of(context).canPop()) {
       Navigator.of(context).pop();
     }
+  }
+
+  Future<void> _importReport() async {
+    try {
+      final jsonString = await pickJsonFile();
+      if (jsonString == null || jsonString.trim().isEmpty) return;
+
+      final parsed = parseReportJson(jsonString);
+
+      final item = HistoryItem(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        message: parsed.topic,
+        mode: 'research',
+        researchType: parsed.type,
+        depth: parsed.depth,
+        research: parsed.result,
+        timestamp: DateTime.now().millisecondsSinceEpoch,
+        isImported: true,
+      );
+
+      final updatedHistory = [item, ..._history];
+      setState(() {
+        _history = updatedHistory;
+        _showLanding = false;
+        _selectedHistoryItemId = item.id;
+        _topicController.text = parsed.topic;
+        _activeResearchType = parsed.type;
+        _activeResearchDepth = parsed.depth;
+        _askResponse = AskResponse(
+          mode: 'research',
+          research: parsed.result,
+        );
+        _errorMessage = null;
+        _isLoading = false;
+      });
+
+      await HistoryStorage.saveHistory(updatedHistory);
+
+      if (mounted) {
+        if (Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Report "${parsed.topic}" imported successfully.',
+              style: AppTheme.bodyFont(fontSize: 13),
+            ),
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      _showImportError(
+          'Failed to import report: ${e is FormatException ? e.message : e.toString()}');
+    }
+  }
+
+  void _showImportError(String message) {
+    if (!mounted) return;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bad = isDark ? AppTheme.darkBad : AppTheme.lightBad;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.error_outline, size: 18, color: Colors.white),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                message,
+                style: AppTheme.bodyFont(fontSize: 13, color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: bad,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        duration: const Duration(seconds: 4),
+      ),
+    );
   }
 
   void _toggleTheme() {
@@ -1996,8 +2083,48 @@ class _HomeScreenState extends State<HomeScreen>
 
             // Top: Full-width New research button (.btn)
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
               child: NewResearchButton(onPressed: _startNewResearch),
+            ),
+
+            // Secondary Import report button (surface fill, 1px line, radius 12, height 40)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: InkWell(
+                onTap: _importReport,
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isDark ? AppTheme.darkLines : AppTheme.lightLines,
+                      width: 1.0,
+                    ),
+                  ),
+                  alignment: Alignment.center,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.file_upload_outlined,
+                        size: 16,
+                        color: isDark ? AppTheme.darkInk : AppTheme.lightInk,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Import report',
+                        style: AppTheme.bodyFont(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w600,
+                          color: isDark ? AppTheme.darkInk : AppTheme.lightInk,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
 
             // Recent Header with Clear all action
@@ -2882,13 +3009,22 @@ class _HomeScreenState extends State<HomeScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // 1. Report Chips (.bd)
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
+        // 1. Report Chips (.bd) and Download Button
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            _buildReportChip('Type: ${_formatType(activeType)}', isDark),
-            _buildReportChip('Depth: ${_formatDepth(activeDepth)}', isDark),
+            Expanded(
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _buildReportChip('Type: ${_formatType(activeType)}', isDark),
+                  _buildReportChip('Depth: ${_formatDepth(activeDepth)}', isDark),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            _buildDownloadButton(res, activeType, activeDepth, isDark),
           ],
         ),
         const SizedBox(height: 12),
@@ -3202,6 +3338,109 @@ class _HomeScreenState extends State<HomeScreen>
         ),
       ),
     );
+  }
+
+  Widget _buildDownloadButton(
+    ResearchResponse res,
+    String type,
+    String depth,
+    bool isDark,
+  ) {
+    final surface = isDark ? AppTheme.darkSurface : AppTheme.lightSurface;
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+    final ink = isDark ? AppTheme.darkInk : AppTheme.lightInk;
+    final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
+
+    return Theme(
+      data: Theme.of(context).copyWith(
+        popupMenuTheme: PopupMenuThemeData(
+          color: surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: line, width: 1.0),
+          ),
+        ),
+      ),
+      child: PopupMenuButton<String>(
+        tooltip: 'Download report',
+        onSelected: (val) {
+          if (val == 'md') {
+            _downloadReportMarkdown(res, type, depth);
+          } else if (val == 'json') {
+            _downloadReportJson(res, type, depth);
+          }
+        },
+        itemBuilder: (ctx) => [
+          PopupMenuItem<String>(
+            value: 'md',
+            height: 40,
+            child: Row(
+              children: [
+                Icon(Icons.description_outlined, size: 16, color: mute),
+                const SizedBox(width: 8),
+                Text(
+                  'Markdown (.md)',
+                  style: AppTheme.bodyFont(fontSize: 13.5, color: ink),
+                ),
+              ],
+            ),
+          ),
+          PopupMenuItem<String>(
+            value: 'json',
+            height: 40,
+            child: Row(
+              children: [
+                Icon(Icons.data_object, size: 16, color: mute),
+                const SizedBox(width: 8),
+                Text(
+                  'JSON (.json)',
+                  style: AppTheme.bodyFont(fontSize: 13.5, color: ink),
+                ),
+              ],
+            ),
+          ),
+        ],
+        child: Container(
+          height: 40,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          decoration: BoxDecoration(
+            color: surface,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: line, width: 1.0),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.download_outlined, size: 16, color: ink),
+              const SizedBox(width: 8),
+              Text(
+                'Download',
+                style: AppTheme.bodyFont(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600,
+                  color: ink,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Icon(Icons.arrow_drop_down, size: 18, color: mute),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _downloadReportMarkdown(ResearchResponse res, String type, String depth) {
+    final md = buildReportMarkdown(research: res, type: type, depth: depth);
+    final filename = '${buildTopicSlug(res.topic)}-${buildExportDateString()}.md';
+    downloadFile(md, filename, 'text/markdown;charset=utf-8');
+  }
+
+  void _downloadReportJson(ResearchResponse res, String type, String depth) {
+    final map = buildReportJson(research: res, type: type, depth: depth);
+    final jsonStr = const JsonEncoder.withIndent('  ').convert(map);
+    final filename = '${buildTopicSlug(res.topic)}-${buildExportDateString()}.json';
+    downloadFile(jsonStr, filename, 'application/json;charset=utf-8');
   }
 
   Widget _buildTallyCol({
@@ -3525,14 +3764,40 @@ class _HistoryTileState extends State<_HistoryTile> {
                           color: ink,
                         ),
                       ),
-                      if (!isChat && widget.item.formattedTypeAndDepth != null) ...[
+                      if (!isChat) ...[
                         const SizedBox(height: 2),
-                        Text(
-                          widget.item.formattedTypeAndDepth!,
-                          style: AppTheme.monoFont(
-                            fontSize: 11,
-                            color: mute,
-                          ),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (widget.item.formattedTypeAndDepth != null)
+                              Text(
+                                widget.item.formattedTypeAndDepth!,
+                                style: AppTheme.monoFont(
+                                  fontSize: 11,
+                                  color: mute,
+                                ),
+                              ),
+                            if (widget.item.isImported) ...[
+                              if (widget.item.formattedTypeAndDepth != null)
+                                const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: isDark ? AppTheme.darkBg : AppTheme.lightBg,
+                                  borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(color: line, width: 1.0),
+                                ),
+                                child: Text(
+                                  'imported',
+                                  style: AppTheme.monoFont(
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: at,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                       ],
                     ],

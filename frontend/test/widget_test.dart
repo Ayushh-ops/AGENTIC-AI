@@ -4,9 +4,82 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile_app/api/api_service.dart';
 import 'package:mobile_app/main.dart';
 import 'package:mobile_app/models/history_item.dart';
+import 'package:mobile_app/utils/report_export_helper.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  test('Markdown builder includes title, tally, and claim status', () {
+    const research = ResearchResponse(
+      topic: 'Quantum Computing 2026',
+      reportMarkdown: 'Quantum computers have achieved fault tolerance.',
+      sources: [
+        SourceItem(title: 'Nature Physics', url: 'https://nature.com/article1', content: 'Details.'),
+      ],
+      claims: [
+        ClaimItem(
+          statement: 'Error threshold exceeded.',
+          status: 'supported',
+          evidence: 'Logical error rate dropped.',
+          sourceUrls: ['https://nature.com/article1'],
+        ),
+        ClaimItem(
+          statement: 'Consumer quantum laptops exist.',
+          status: 'unsupported',
+          evidence: 'No hardware available.',
+          sourceUrls: [],
+        ),
+      ],
+    );
+
+    final md = buildReportMarkdown(research: research, type: 'news', depth: 'deep');
+
+    expect(md, contains('Quantum Computing 2026'));
+    expect(md, contains('Tally:'));
+    expect(md, contains('supported'));
+    expect(md, contains('AI-generated, unverified. Read the evidence under each claim.'));
+  });
+
+  test('JSON report export then parse round trip equals original', () {
+    const original = ResearchResponse(
+      topic: 'Renewable Energy Progress',
+      reportMarkdown: 'Solar installations surged worldwide.',
+      sources: [
+        SourceItem(title: 'IEA Report', url: 'https://iea.org/solar', content: 'Capacity up 30%.'),
+      ],
+      claims: [
+        ClaimItem(
+          statement: 'Solar generation capacity grew by 30%.',
+          status: 'supported',
+          evidence: 'Verified across regional grids.',
+          sourceUrls: ['https://iea.org/solar'],
+        ),
+      ],
+    );
+
+    final exportedMap = buildReportJson(
+      research: original,
+      type: 'academic',
+      depth: 'standard',
+    );
+    final jsonStr = jsonEncode(exportedMap);
+    final parsed = parseReportJson(jsonStr);
+
+    expect(parsed.app, 'Multi Agent Research Assistant');
+    expect(parsed.version, 1);
+    expect(parsed.topic, original.topic);
+    expect(parsed.type, 'academic');
+    expect(parsed.depth, 'standard');
+    expect(parsed.result.topic, original.topic);
+    expect(parsed.result.reportMarkdown, original.reportMarkdown);
+    expect(parsed.result.claims.length, 1);
+    expect(parsed.result.claims.first.statement, original.claims.first.statement);
+    expect(parsed.result.claims.first.status, original.claims.first.status);
+    expect(parsed.result.claims.first.evidence, original.claims.first.evidence);
+    expect(parsed.result.sources.length, 1);
+    expect(parsed.result.sources.first.title, original.sources.first.title);
+    expect(parsed.result.sources.first.url, original.sources.first.url);
+  });
+
   test('HistoryItem deserialization supports new and legacy items safely', () {
     // New item with type and depth
     final newItem = HistoryItem.fromJson({

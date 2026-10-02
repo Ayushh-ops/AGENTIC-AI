@@ -12,6 +12,7 @@ class HistoryItem {
   final String? researchType; // 'general', 'news', 'academic'
   final String? depth; // 'quick', 'standard', 'deep'
   final int timestamp;
+  final bool isImported;
 
   const HistoryItem({
     required this.id,
@@ -22,6 +23,7 @@ class HistoryItem {
     this.researchType,
     this.depth,
     required this.timestamp,
+    this.isImported = false,
   });
 
   /// Formatted tag for sidebar list display, e.g. "News - Deep".
@@ -46,6 +48,7 @@ class HistoryItem {
       'reply': reply,
       'research_type': researchType,
       'depth': depth,
+      'is_imported': isImported,
       'research': research != null
           ? {
               'topic': research!.topic,
@@ -81,6 +84,7 @@ class HistoryItem {
       reply: json['reply'] as String?,
       researchType: json['research_type'] as String?,
       depth: json['depth'] as String?,
+      isImported: json['is_imported'] as bool? ?? false,
       research: json['research'] != null
           ? ResearchResponse.fromJson(json['research'] as Map<String, dynamic>)
           : null,

@@ -22,6 +22,12 @@ class SourceItem {
       content: json['content'] as String? ?? '',
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'title': title,
+        'url': url,
+        'content': content,
+      };
 }
 
 /// Evaluated factual claim with evidence and supporting source attribution.
@@ -56,6 +62,14 @@ class ClaimItem {
       evidence: json['evidence'] as String? ?? '',
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'statement': statement,
+        'status': status,
+        if (sourceUrl != null) 'source_url': sourceUrl,
+        'source_urls': sourceUrls,
+        'evidence': evidence,
+      };
 }
 
 /// Consolidated research response model.
@@ -84,6 +98,13 @@ class ResearchResponse {
           .toList(),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'topic': topic,
+        'report_markdown': reportMarkdown,
+        'sources': sources.map((s) => s.toJson()).toList(),
+        'claims': claims.map((c) => c.toJson()).toList(),
+      };
 }
 
 /// Response model returned by the POST /ask router endpoint.
