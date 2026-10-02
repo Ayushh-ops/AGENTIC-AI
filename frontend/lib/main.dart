@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'api/api_service.dart';
 import 'screens/home_screen.dart';
+import 'services/settings_service.dart';
 import 'theme/app_theme.dart';
 
 /// Global notifier for toggling between system, light, and dark themes.
@@ -11,28 +11,22 @@ final ValueNotifier<ThemeMode> themeModeNotifier =
 /// Loads the persisted theme mode from local storage.
 Future<void> loadThemeMode() async {
   try {
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getString('app_theme_mode');
-    if (saved == 'light') {
-      themeModeNotifier.value = ThemeMode.light;
-    } else if (saved == 'dark') {
-      themeModeNotifier.value = ThemeMode.dark;
-    } else {
-      themeModeNotifier.value = ThemeMode.system;
-    }
+    await SettingsService.instance.load();
+    themeModeNotifier.value = SettingsService.instance.themeMode;
   } catch (_) {}
 }
 
 /// Persists the selected theme mode to local storage.
 Future<void> saveThemeMode(ThemeMode mode) async {
   try {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('app_theme_mode', mode.name);
+    await SettingsService.instance.setThemeMode(mode);
+    themeModeNotifier.value = mode;
   } catch (_) {}
 }
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await SettingsService.instance.load();
   await loadThemeMode();
   runApp(const ResearchAssistantApp());
 }

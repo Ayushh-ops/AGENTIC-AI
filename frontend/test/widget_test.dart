@@ -16,6 +16,9 @@ class _TestMockApiService extends ApiService {
     String message, {
     String? researchType = 'general',
     String? depth = 'standard',
+    String? language,
+    List<String>? groqKeys,
+    List<String>? tavilyKeys,
   }) {
     return completer.future;
   }

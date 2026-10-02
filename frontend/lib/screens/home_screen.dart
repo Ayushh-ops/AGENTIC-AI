@@ -10,11 +10,13 @@ import 'package:url_launcher/url_launcher.dart';
 import '../api/api_service.dart';
 import '../main.dart';
 import '../models/history_item.dart';
+import '../services/settings_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/file_helper.dart';
 import '../utils/report_export_helper.dart';
 import '../widgets/dynamic_background.dart';
 import '../widgets/interactive_controls.dart';
+import '../widgets/settings_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
   final ApiService? apiService;
@@ -43,8 +45,8 @@ class _HomeScreenState extends State<HomeScreen>
   List<HistoryItem> _history = [];
   String? _selectedHistoryItemId;
 
-  String _selectedType = 'general'; // 'general' | 'news' | 'academic'
-  String _selectedDepth = 'standard'; // 'quick' | 'standard' | 'deep'
+  String _selectedType = SettingsService.instance.defaultType; // 'general' | 'news' | 'academic'
+  String _selectedDepth = SettingsService.instance.defaultDepth; // 'quick' | 'standard' | 'deep'
   String? _activeResearchType;
   String? _activeResearchDepth;
 
@@ -190,10 +192,14 @@ class _HomeScreenState extends State<HomeScreen>
           if (savedType != null &&
               ['general', 'news', 'academic'].contains(savedType)) {
             _selectedType = savedType;
+          } else {
+            _selectedType = SettingsService.instance.defaultType;
           }
           if (savedDepth != null &&
               ['quick', 'standard', 'deep'].contains(savedDepth)) {
             _selectedDepth = savedDepth;
+          } else {
+            _selectedDepth = SettingsService.instance.defaultDepth;
           }
         });
       }
@@ -229,6 +235,7 @@ class _HomeScreenState extends State<HomeScreen>
     String? researchType,
     String? depth,
   }) {
+    if (!SettingsService.instance.saveHistory) return;
     final newId = DateTime.now().millisecondsSinceEpoch.toString();
     final newItem = HistoryItem(
       id: newId,
@@ -475,10 +482,14 @@ class _HomeScreenState extends State<HomeScreen>
     });
 
     try {
+      final settings = SettingsService.instance;
       final res = await _apiService.ask(
         message,
         researchType: typeToRun,
         depth: depthToRun,
+        language: settings.reportLanguage,
+        groqKeys: settings.groqKeys,
+        tavilyKeys: settings.tavilyKeys,
       );
       _loadingTimer?.cancel();
       if (mounted) {
@@ -512,6 +523,18 @@ class _HomeScreenState extends State<HomeScreen>
         });
       }
     }
+  }
+
+  void _showSettingsDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => SettingsDialog(
+        baseUrl: _apiService.baseUrl,
+        onHistoryCleared: () {
+          _clearAllHistory();
+        },
+      ),
+    );
   }
 
   void _showAboutDialog(BuildContext context) {
@@ -806,6 +829,7 @@ class _HomeScreenState extends State<HomeScreen>
       body: DynamicBackground(
         isLoading: _isLoading,
         accentColor: isDark ? AppTheme.darkAt : AppTheme.lightAt,
+        spotlightEnabled: SettingsService.instance.isSpotlightActive,
         child: Column(
           children: [
             _buildPersistentTopBar(
@@ -817,7 +841,8 @@ class _HomeScreenState extends State<HomeScreen>
             ),
             Expanded(
               child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 350),
+                duration: SettingsService.instance
+                    .transitionDuration(const Duration(milliseconds: 350)),
                 switchInCurve: Curves.easeInOutCubic,
                 switchOutCurve: Curves.easeInOutCubic,
                 transitionBuilder: (child, animation) {
@@ -975,20 +1000,28 @@ class _HomeScreenState extends State<HomeScreen>
           const SizedBox(width: 8),
         ],
         _buildIconButton(
+          icon: Icons.settings_outlined,
+          tooltip: 'Settings',
+          isDark: isDark,
+          size: screenWidth < 500 ? 34 : 38,
+          onPressed: () => _showSettingsDialog(context),
+        ),
+        SizedBox(width: screenWidth < 500 ? 6 : 8),
+        _buildIconButton(
           icon: isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
           tooltip: isDark ? 'Switch to light mode' : 'Switch to dark mode',
           isDark: isDark,
-          size: 38,
+          size: screenWidth < 500 ? 34 : 38,
           onPressed: _toggleTheme,
         ),
-        const SizedBox(width: 12),
+        SizedBox(width: screenWidth < 500 ? 8 : 12),
         FilledButton(
           onPressed: _enterWorkspace,
           style: FilledButton.styleFrom(
             backgroundColor: acc,
             foregroundColor: onAcc,
             minimumSize: const Size(0, 42),
-            padding: const EdgeInsets.symmetric(horizontal: 20),
+            padding: EdgeInsets.symmetric(horizontal: screenWidth < 500 ? 12 : 20),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
             ),
@@ -2309,7 +2342,8 @@ class _HomeScreenState extends State<HomeScreen>
             : (_errorMessage != null ? 'error' : 'hero'));
 
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 250),
+      duration: SettingsService.instance
+          .transitionDuration(const Duration(milliseconds: 250)),
       switchInCurve: Curves.easeOutCubic,
       switchOutCurve: Curves.easeOutCubic,
       transitionBuilder: (child, animation) {
@@ -2467,6 +2501,14 @@ class _HomeScreenState extends State<HomeScreen>
           ),
         ),
         _buildAboutLink(isDark),
+        const SizedBox(width: 8),
+        _buildIconButton(
+          icon: Icons.settings_outlined,
+          tooltip: 'Settings',
+          isDark: isDark,
+          size: 36,
+          onPressed: () => _showSettingsDialog(context),
+        ),
         const SizedBox(width: 8),
         _buildIconButton(
           icon: isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
@@ -4042,14 +4084,18 @@ class _StaggeredEntranceState extends State<_StaggeredEntrance>
   void initState() {
     super.initState();
     final isTest = WidgetsBinding.instance.runtimeType.toString().contains('Test');
-    _controller = AnimationController(vsync: this, duration: _duration);
+    final reduceMotion = SettingsService.instance.reduceMotion;
+    _controller = AnimationController(
+      vsync: this,
+      duration: reduceMotion ? Duration.zero : _duration,
+    );
     _fadeAnimation = CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic);
     _slideAnimation = Tween<Offset>(
       begin: const Offset(0, 0.04), // ~8px on typical block height
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
 
-    if (isTest) {
+    if (isTest || reduceMotion) {
       _controller.value = 1.0;
     } else {
       final delay = _delayStep * widget.index;

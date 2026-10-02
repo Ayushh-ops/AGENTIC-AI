@@ -235,15 +235,29 @@ class ApiService {
     String message, {
     String? researchType,
     String? depth,
+    String? language,
+    List<String>? groqKeys,
+    List<String>? tavilyKeys,
   }) async {
     final uri = Uri.parse('$baseUrl/ask');
-    final headers = {'Content-Type': 'application/json'};
+    final headers = <String, String>{'Content-Type': 'application/json'};
+
+    if (groqKeys != null && groqKeys.isNotEmpty) {
+      headers['X-Groq-Keys'] = groqKeys.map((k) => k.trim()).join(',');
+    }
+    if (tavilyKeys != null && tavilyKeys.isNotEmpty) {
+      headers['X-Tavily-Keys'] = tavilyKeys.map((k) => k.trim()).join(',');
+    }
+
     final Map<String, dynamic> payload = {'message': message.trim()};
     if (researchType != null && researchType.isNotEmpty) {
       payload['research_type'] = researchType;
     }
     if (depth != null && depth.isNotEmpty) {
       payload['depth'] = depth;
+    }
+    if (language != null && language.isNotEmpty) {
+      payload['language'] = language;
     }
     final body = jsonEncode(payload);
 

@@ -48,9 +48,37 @@ Every evaluated claim is assigned an explicit verification status:
 - **Landing & Explanations**: Clean hero presentation, interactive topic composer, live pipeline walk-through, and verification criteria guide.
 - **Unified Workspace**: Fixed-height top bar (64px) with persistent navigation, secondary search controls during active runs, and expandable sidebar.
 - **Composer & Filters**: Multi-line topic composer with live character indicator, fast type selector pills, and depth configuration popover.
+- **Settings & Preferences**: Gear icon modal providing custom API key management, research defaults (type, depth, report language), appearance controls (theme, cursor spotlight, reduce motion), and history management.
+- **Report Language**: Generate research reports in 12 languages (English, Hindi, Spanish, French, German, Portuguese, Bengali, Tamil, Telugu, Marathi, Arabic, Japanese) while preserving verbatim evidence quotes.
 - **Search History**: Client-side research history grouped by timestamp (Today, Yesterday, Earlier) with quick reload and deletion.
 - **Export & Import**: Download reports directly in the browser as Markdown (`.md`) or structured JSON (`.json`); import valid JSON reports back into your history.
-- **Theming & Motion**: Dark and light modes with custom accent tokens, cursor-following grid spotlight, and smooth animated transitions.
+- **Theming & Motion**: Dark and light modes with custom accent tokens, cursor-following grid spotlight, and reduce-motion support (zero-duration animations and spotlight off).
+
+---
+
+## Settings & API Key Rotation
+
+The top-bar **Settings** dialog allows customizing runtime behavior without modifying backend configurations:
+
+### 1. Per-Request API Keys & Rotation
+- **Browser-Scoped Keys**: Enter up to 10 Groq keys and 10 Tavily keys. When provided, these are passed per-request via `X-Groq-Keys` and `X-Tavily-Keys` headers.
+- **Automatic Provider Rotation**: If a key encounters rate limits (HTTP 429) or authentication errors (HTTP 401/403) from the provider, the request automatically rotates to the next available key in the list.
+- **Backend Fallback**: If no browser keys are configured, the backend seamlessly falls back to `.env` keys.
+- **Security & Privacy**:
+  - Keys are stored unencrypted in local browser storage (`SharedPreferences`).
+  - Keys are never logged, never included in exports or error messages, and masked in the UI showing only the last 4 characters.
+  - **Transport Security**: Always use an HTTPS backend when deployed. A warning banner appears in Settings if connected over unencrypted HTTP.
+  - Never commit API keys to version control.
+
+### 2. Research Defaults & Language
+- Configure default search type (**General**, **News**, **Academic**) and depth (**Quick**, **Standard**, **Deep**).
+- **Report Language**: Select your preferred language for the executive summary, key findings, and evaluated claim statements. Quotes and primary sources always stay verbatim in their original language.
+
+### 3. Appearance & Data Controls
+- **Theme Mode**: Switch between System, Light, and Dark themes.
+- **Cursor Spotlight**: Toggle the 260px radial dot-grid spotlight effect.
+- **Reduce Motion**: Disables transitions and entrance staggers (zero duration) and disables cursor spotlight.
+- **History Control**: Toggle history persistence or clear all saved research entries.
 
 ---
 
@@ -119,11 +147,13 @@ flutter run -d chrome
 ## Running Tests
 
 ### Backend Tests (pytest)
+Runs 76 tests covering agents, API routes, claim extraction, quote validation, domain deduplication, rate limit key rotation, and multi-language support:
 ```bash
 pytest backend/tests
 ```
 
 ### Frontend Tests (flutter test)
+Runs 20 widget and unit tests covering Markdown/JSON export and import, history deserialization, composer controls, responsive layout without overflow at 360px/768px/1280px, settings persistence round-trip, key masking, and request header generation:
 ```bash
 cd frontend
 flutter test
@@ -141,18 +171,22 @@ multi_agent_research_assistant/
 │   │   ├── api/             # FastAPI routers and endpoints
 │   │   ├── core/            # Configuration and application settings
 │   │   ├── models/          # Pydantic schemas (claims, sources, reports)
-│   │   ├── services/        # Groq LLM service & Tavily search service
+│   │   ├── services/        # Groq LLM service & Tavily search service (with key rotation)
 │   │   └── workflows/       # Orchestration workflow & DEPTH_SETTINGS
-│   ├── tests/               # Backend pytest test suite
+│   ├── tests/               # Backend pytest test suite (76 tests)
 │   ├── main.py              # FastAPI application entrypoint
 │   └── requirements.txt     # Python dependencies
 ├── frontend/
 │   ├── lib/
-│   │   ├── api/             # API client and service bindings
+│   │   ├── api/             # API client, models, and header management
+│   │   ├── models/          # HistoryItem data models
 │   │   ├── screens/         # HomeScreen (landing and workspace UI)
-│   │   ├── theme/           # AppTheme color palettes and typography
+│   │   ├── services/        # SettingsService (persistence, keys, appearance)
+│   │   ├── theme/           # AppTheme color tokens, fonts, and Noto fallbacks
+│   │   ├── utils/           # Report export, import, and file download helpers
+│   │   ├── widgets/         # DynamicBackground, SettingsDialog, InteractiveControls
 │   │   └── main.dart        # Flutter entrypoint
-│   ├── test/                # Flutter widget and unit tests
+│   ├── test/                # Flutter test suite (widget_test, settings_test)
 │   └── pubspec.yaml         # Flutter package dependencies
 ├── .env.example             # Environment template (no secrets)
 ├── .gitignore               # Ignored files (.env, build/, .dart_tool/, etc.)

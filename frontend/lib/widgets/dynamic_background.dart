@@ -1,5 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import '../services/settings_service.dart';
 import '../theme/app_theme.dart';
 
 /// Lightweight dot-grid background with cursor dot spotlight replicating `.grid` and `.spot`
@@ -12,12 +13,14 @@ class DynamicBackground extends StatefulWidget {
   final Widget child;
   final bool isLoading;
   final Color? accentColor;
+  final bool? spotlightEnabled;
 
   const DynamicBackground({
     super.key,
     required this.child,
     this.isLoading = false,
     this.accentColor,
+    this.spotlightEnabled,
   });
 
   @override
@@ -66,6 +69,8 @@ class _DynamicBackgroundState extends State<DynamicBackground> {
     final lineColor = isDark ? AppTheme.darkLines : AppTheme.lightLines;
     final accent = widget.accentColor ?? (isDark ? AppTheme.darkAt : AppTheme.lightAt);
     final isTest = WidgetsBinding.instance.runtimeType.toString().contains('Test');
+    final bool enableSpotlight =
+        widget.spotlightEnabled ?? SettingsService.instance.isSpotlightActive;
 
     return MouseRegion(
       onHover: isTest ? null : _onPointerHover,
@@ -89,7 +94,7 @@ class _DynamicBackgroundState extends State<DynamicBackground> {
           ),
 
           // Layer 2: Cursor spotlight dot grid (re-paints only when pointer moves)
-          if (!isTest)
+          if (!isTest && enableSpotlight)
             Positioned.fill(
               child: RepaintBoundary(
                 child: ValueListenableBuilder<Offset?>(

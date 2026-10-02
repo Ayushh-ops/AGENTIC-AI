@@ -134,9 +134,17 @@ class AppTheme {
     FontStyle? fontStyle,
     TextDecoration? decoration,
   }) {
+    final fallbacks = [
+      GoogleFonts.notoSans().fontFamily ?? 'Noto Sans',
+      GoogleFonts.notoSansDevanagari().fontFamily ?? 'Noto Sans Devanagari',
+      'Georgia',
+      'serif',
+    ];
     try {
       return GoogleFonts.instrumentSerif(
-        textStyle: textStyle,
+        textStyle: (textStyle ?? const TextStyle()).copyWith(
+          fontFamilyFallback: fallbacks,
+        ),
         color: color,
         fontSize: fontSize,
         fontWeight: fontWeight,
@@ -148,6 +156,7 @@ class AppTheme {
     } catch (_) {
       return TextStyle(
         fontFamily: 'Georgia, serif',
+        fontFamilyFallback: fallbacks,
         color: color,
         fontSize: fontSize,
         fontWeight: fontWeight,
@@ -170,9 +179,16 @@ class AppTheme {
     FontStyle? fontStyle,
     TextDecoration? decoration,
   }) {
+    final fallbacks = [
+      GoogleFonts.notoSans().fontFamily ?? 'Noto Sans',
+      GoogleFonts.notoSansDevanagari().fontFamily ?? 'Noto Sans Devanagari',
+      'sans-serif',
+    ];
     try {
       return GoogleFonts.geist(
-        textStyle: textStyle,
+        textStyle: (textStyle ?? const TextStyle()).copyWith(
+          fontFamilyFallback: fallbacks,
+        ),
         color: color,
         fontSize: fontSize,
         fontWeight: fontWeight,
@@ -184,6 +200,7 @@ class AppTheme {
     } catch (_) {
       return TextStyle(
         fontFamily: 'sans-serif',
+        fontFamilyFallback: fallbacks,
         color: color,
         fontSize: fontSize,
         fontWeight: fontWeight,
