@@ -27,6 +27,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin {
   final TextEditingController _topicController = TextEditingController();
+  final FocusNode _composerFocusNode = FocusNode();
   late final ApiService _apiService = widget.apiService ?? ApiService();
 
   bool _showLanding = true;
@@ -152,6 +153,10 @@ class _HomeScreenState extends State<HomeScreen>
     );
     _pulseAnimation = Tween<double>(begin: 0.35, end: 1.0).animate(_pulseController);
 
+    _composerFocusNode.addListener(() {
+      if (mounted) setState(() {});
+    });
+
     if (!isRunningInTest) {
       _pulseController.repeat(reverse: true);
       _pipelineTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
@@ -166,6 +171,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   @override
   void dispose() {
+    _composerFocusNode.dispose();
     _pulseController.dispose();
     _pipelineTimer?.cancel();
     _landingScrollController.dispose();
@@ -1133,7 +1139,9 @@ class _HomeScreenState extends State<HomeScreen>
     final ink = isDark ? AppTheme.darkInk : AppTheme.lightInk;
     final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
     final at = isDark ? AppTheme.darkAt : AppTheme.lightAt;
+    final warn = isDark ? AppTheme.darkWarn : AppTheme.lightWarn;
     final bool canSubmit = !_isLoading && _topicController.text.trim().isNotEmpty;
+    final bool isComposerFocused = _composerFocusNode.hasFocus;
 
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 760),
@@ -1144,7 +1152,10 @@ class _HomeScreenState extends State<HomeScreen>
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Large multiline input box: min 3 lines (~112px), grows to 6, radius 20, padding 16, font 18, surface fill, 1px line border (accent border on focus), maxLength 200 (counter shown only above 160). Enter submits, Shift+Enter = newline.
+              // Shared composer box: min height ~96 (2 lines, grows to 6), padding 16.
+              // Inside the box at the bottom: a row with LEFT a hint in Geist Mono 12 muted
+              // "Enter to research · Shift+Enter for a new line" (hide under 480px) and
+              // RIGHT a counter "n/200" in Geist Mono 12 muted (turns warn color at >=180).
               Focus(
                 onKeyEvent: (node, event) {
                   if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.enter) {
@@ -1159,42 +1170,74 @@ class _HomeScreenState extends State<HomeScreen>
                   }
                   return KeyEventResult.ignored;
                 },
-                child: TextField(
-                  controller: _topicController,
-                  enabled: !_isLoading,
-                  minLines: 3,
-                  maxLines: 6,
-                  maxLength: 200,
-                  buildCounter: (context, {required currentLength, required isFocused, maxLength}) {
-                    if (currentLength > 160) {
-                      return Text(
-                        '$currentLength/$maxLength',
-                        style: AppTheme.monoFont(fontSize: 11, color: mute),
-                      );
-                    }
-                    return null;
-                  },
-                  style: AppTheme.bodyFont(fontSize: 18, color: ink),
-                  decoration: InputDecoration(
-                    filled: true,
-                    fillColor: surface,
-                    hintText: 'Ask or enter a research topic',
-                    hintStyle: AppTheme.bodyFont(fontSize: 18, color: mute),
-                    contentPadding: const EdgeInsets.all(16),
-                    border: OutlineInputBorder(
+                child: GestureDetector(
+                  onTap: () => _composerFocusNode.requestFocus(),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    constraints: const BoxConstraints(minHeight: 96),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: surface,
                       borderRadius: BorderRadius.circular(20),
-                      borderSide: BorderSide(color: line, width: 1.0),
+                      border: Border.all(
+                        color: isComposerFocused ? at : line,
+                        width: isComposerFocused ? 1.5 : 1.0,
+                      ),
                     ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(20),
-                      borderSide: BorderSide(color: line, width: 1.0),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(20),
-                      borderSide: BorderSide(color: at, width: 1.5),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextField(
+                          controller: _topicController,
+                          focusNode: _composerFocusNode,
+                          enabled: !_isLoading,
+                          minLines: 2,
+                          maxLines: 6,
+                          maxLength: 200,
+                          buildCounter: (context, {required currentLength, required isFocused, maxLength}) => null,
+                          style: AppTheme.bodyFont(fontSize: 18, color: ink),
+                          decoration: InputDecoration(
+                            isDense: true,
+                            filled: false,
+                            contentPadding: EdgeInsets.zero,
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            hintText: 'Ask or enter a research topic',
+                            hintStyle: AppTheme.bodyFont(fontSize: 18, color: mute),
+                          ),
+                          onChanged: (_) => setState(() {}),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            if (screenWidth >= 480)
+                              Expanded(
+                                child: Text(
+                                  'Enter to research · Shift+Enter for a new line',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTheme.monoFont(fontSize: 12, color: mute),
+                                ),
+                              )
+                            else
+                              const Spacer(),
+                            const SizedBox(width: 8),
+                            Text(
+                              '${_topicController.text.length}/200',
+                              style: AppTheme.monoFont(
+                                fontSize: 12,
+                                color: _topicController.text.length >= 180 ? warn : mute,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
-                  onChanged: (_) => setState(() {}),
                 ),
               ),
               const SizedBox(height: 12),
@@ -2414,17 +2457,17 @@ class _HomeScreenState extends State<HomeScreen>
             },
           ),
         ),
-        // Wordmark next to hamburger ONLY when sidebar is closed
-        if (!isSidebarVisible) ...[
-          const SizedBox(width: 10),
-          Flexible(
-            child: _buildBrandWordmark(isDark),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: !isSidebarVisible
+                ? _buildBrandWordmark(isDark)
+                : const SizedBox.shrink(),
           ),
-        ],
-        const Spacer(),
-        // About + theme icon pinned to the far RIGHT edge
+        ),
         _buildAboutLink(isDark),
-        const SizedBox(width: 4),
+        const SizedBox(width: 8),
         _buildIconButton(
           icon: isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
           tooltip: isDark ? 'Switch to light mode' : 'Switch to dark mode',

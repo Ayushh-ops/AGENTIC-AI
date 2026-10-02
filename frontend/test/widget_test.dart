@@ -412,6 +412,77 @@ void main() {
     expect(find.byKey(const ValueKey('landing_content')), findsOneWidget);
     expect(find.byKey(const ValueKey('workspace_content')), findsNothing);
   });
+
+  testWidgets('Top bar row 1 alignment at widths 1280 and 1900 with sidebar open and closed', (WidgetTester tester) async {
+    addTearDown(tester.view.resetPhysicalSize);
+
+    for (final width in [1280.0, 1900.0]) {
+      tester.view.physicalSize = Size(width, 900);
+      tester.view.devicePixelRatio = 1.0;
+
+      await tester.pumpWidget(ResearchAssistantApp(key: UniqueKey()));
+      await tester.pumpAndSettle();
+
+      // Enter workspace
+      await tester.tap(find.widgetWithText(FilledButton, 'Get started').first);
+      await tester.pumpAndSettle();
+
+      final hamburgerFinder = find.byTooltip('Toggle sidebar');
+      final themeFinder = find.byTooltip('Switch to dark mode');
+      expect(hamburgerFinder, findsOneWidget);
+      expect(themeFinder, findsOneWidget);
+
+      // State 1: Sidebar open
+      final hamburgerRectOpen = tester.getRect(hamburgerFinder);
+      final themeRectOpen = tester.getRect(themeFinder);
+
+      // Theme icon's right edge is within padding of the screen edge (24px at >=1000px)
+      final double padding = width >= 1000 ? 24.0 : 16.0;
+      expect(themeRectOpen.right, closeTo(width - padding, 0.5));
+      expect(hamburgerRectOpen.left, closeTo(padding, 0.5));
+
+      // Toggle sidebar to closed
+      await tester.tap(hamburgerFinder);
+      await tester.pumpAndSettle();
+
+      // State 2: Sidebar closed
+      final hamburgerRectClosed = tester.getRect(hamburgerFinder);
+      final themeRectClosed = tester.getRect(themeFinder);
+
+      // Hamburger position is identical
+      expect(hamburgerRectClosed.topLeft, equals(hamburgerRectOpen.topLeft));
+
+      // Theme icon's right edge is equal in both states and within padding
+      expect(themeRectClosed.right, equals(themeRectOpen.right));
+      expect(themeRectClosed.right, closeTo(width - padding, 0.5));
+    }
+  });
+
+  testWidgets('Composer displays bottom hint and counter inside the box', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1000, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    await tester.pumpWidget(const ResearchAssistantApp());
+    await tester.pumpAndSettle();
+
+    expect(find.text('Enter to research · Shift+Enter for a new line'), findsOneWidget);
+    expect(find.text('0/200'), findsOneWidget);
+
+    // Type 185 characters
+    final longText = 'a' * 185;
+    await tester.enterText(find.byType(TextField), longText);
+    await tester.pump();
+
+    expect(find.text('185/200'), findsOneWidget);
+
+    // Resize under 480px -> hint hides, counter remains
+    tester.view.physicalSize = const Size(400, 800);
+    await tester.pump();
+
+    expect(find.text('Enter to research · Shift+Enter for a new line'), findsNothing);
+    expect(find.text('185/200'), findsOneWidget);
+  });
 }
 
 
