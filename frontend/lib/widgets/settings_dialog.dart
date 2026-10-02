@@ -401,44 +401,8 @@ class _SettingsDialogState extends State<SettingsDialog> {
                           ),
                         ],
 
-                        // --- SECTION B: RESEARCH DEFAULTS ---
-                        _buildSectionHeader('Research Defaults', mute),
-
-                        // Default Type
-                        _buildSettingRow(
-                          label: 'Default type',
-                          isDark: isDark,
-                          mute: mute,
-                          child: _buildSegmentedChoice<String>(
-                            options: const ['general', 'news', 'academic'],
-                            labels: const ['General', 'News', 'Academic'],
-                            selected: settings.defaultType,
-                            isDark: isDark,
-                            line: line,
-                            acc: acc,
-                            onAcc: onAcc,
-                            onSelected: (val) => settings.setDefaultType(val),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-
-                        // Default Depth
-                        _buildSettingRow(
-                          label: 'Default depth',
-                          isDark: isDark,
-                          mute: mute,
-                          child: _buildSegmentedChoice<String>(
-                            options: const ['quick', 'standard', 'deep'],
-                            labels: const ['Quick', 'Standard', 'Deep'],
-                            selected: settings.defaultDepth,
-                            isDark: isDark,
-                            line: line,
-                            acc: acc,
-                            onAcc: onAcc,
-                            onSelected: (val) => settings.setDefaultDepth(val),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
+                        // --- SECTION B: REPORT ---
+                        _buildSectionHeader('Report', mute),
 
                         // Report Language Dropdown
                         _buildSettingRow(

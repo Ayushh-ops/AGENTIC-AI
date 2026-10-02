@@ -461,7 +461,7 @@ void main() {
     }
   });
 
-  testWidgets('Composer displays bottom hint and counter inside the box', (WidgetTester tester) async {
+  testWidgets('Composer displays counter inside the box and hint is absent', (WidgetTester tester) async {
     tester.view.physicalSize = const Size(1000, 800);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
@@ -469,7 +469,7 @@ void main() {
     await tester.pumpWidget(const ResearchAssistantApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('Enter to research · Shift+Enter for a new line'), findsOneWidget);
+    expect(find.text('Enter to research · Shift+Enter for a new line'), findsNothing);
     expect(find.text('0/200'), findsOneWidget);
 
     // Type 185 characters
@@ -477,14 +477,48 @@ void main() {
     await tester.enterText(find.byType(TextField), longText);
     await tester.pump();
 
+    expect(find.text('Enter to research · Shift+Enter for a new line'), findsNothing);
     expect(find.text('185/200'), findsOneWidget);
 
-    // Resize under 480px -> hint hides, counter remains
+    // Resize under 480px -> hint is absent, counter remains
     tester.view.physicalSize = const Size(400, 800);
     await tester.pump();
 
     expect(find.text('Enter to research · Shift+Enter for a new line'), findsNothing);
     expect(find.text('185/200'), findsOneWidget);
+  });
+
+  testWidgets('Get started button right edge is within screen minus padding at widths 360, 768, 1280, 1900 without overflow', (WidgetTester tester) async {
+    addTearDown(tester.view.resetPhysicalSize);
+
+    const widths = [360.0, 768.0, 1280.0, 1900.0];
+    for (final width in widths) {
+      tester.view.physicalSize = Size(width, 800);
+      tester.view.devicePixelRatio = 1.0;
+
+      await tester.pumpWidget(ResearchAssistantApp(key: UniqueKey()));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull, reason: 'Overflow occurred on landing screen at width $width');
+
+      final getStartedFinder = find.widgetWithText(FilledButton, 'Get started');
+      expect(getStartedFinder, findsOneWidget);
+
+      final getStartedRect = tester.getRect(getStartedFinder);
+      final double padding = width >= 1000 ? 24.0 : 16.0;
+      final double maxAllowedRight = width - padding;
+
+      expect(
+        getStartedRect.right,
+        lessThanOrEqualTo(maxAllowedRight + 0.5),
+        reason: 'Get started button right edge (${getStartedRect.right}) must be within screen minus padding ($maxAllowedRight) at width $width',
+      );
+      expect(
+        getStartedRect.right,
+        closeTo(maxAllowedRight, 1.0),
+        reason: 'Get started button should be right-aligned up to padding at width $width',
+      );
+    }
   });
 }
 

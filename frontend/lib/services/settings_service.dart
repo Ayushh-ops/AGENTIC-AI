@@ -28,8 +28,6 @@ class SettingsService extends ChangeNotifier {
   // Preferences Keys
   static const String keyGroqKeys = 'settings_groq_keys';
   static const String keyTavilyKeys = 'settings_tavily_keys';
-  static const String keyDefaultType = 'settings_default_type';
-  static const String keyDefaultDepth = 'settings_default_depth';
   static const String keyReportLanguage = 'settings_report_language';
   static const String keyThemeMode = 'app_theme_mode';
   static const String keyCursorSpotlight = 'settings_cursor_spotlight';
@@ -39,8 +37,6 @@ class SettingsService extends ChangeNotifier {
   // State
   List<String> _groqKeys = [];
   List<String> _tavilyKeys = [];
-  String _defaultType = 'general';
-  String _defaultDepth = 'standard';
   String _reportLanguage = 'English';
   ThemeMode _themeMode = ThemeMode.system;
   bool _cursorSpotlight = true;
@@ -50,8 +46,6 @@ class SettingsService extends ChangeNotifier {
   // Getters
   List<String> get groqKeys => List.unmodifiable(_groqKeys);
   List<String> get tavilyKeys => List.unmodifiable(_tavilyKeys);
-  String get defaultType => _defaultType;
-  String get defaultDepth => _defaultDepth;
   String get reportLanguage => _reportLanguage;
   ThemeMode get themeMode => _themeMode;
   bool get cursorSpotlight => _cursorSpotlight;
@@ -133,16 +127,6 @@ class SettingsService extends ChangeNotifier {
       _groqKeys = prefs.getStringList(keyGroqKeys) ?? [];
       _tavilyKeys = prefs.getStringList(keyTavilyKeys) ?? [];
 
-      final savedType = prefs.getString(keyDefaultType);
-      if (savedType != null && ['general', 'news', 'academic'].contains(savedType)) {
-        _defaultType = savedType;
-      }
-
-      final savedDepth = prefs.getString(keyDefaultDepth);
-      if (savedDepth != null && ['quick', 'standard', 'deep'].contains(savedDepth)) {
-        _defaultDepth = savedDepth;
-      }
-
       final savedLang = prefs.getString(keyReportLanguage);
       if (savedLang != null && kAllowedReportLanguages.contains(savedLang)) {
         _reportLanguage = savedLang;
@@ -207,22 +191,6 @@ class SettingsService extends ChangeNotifier {
     await prefs.remove(keyGroqKeys);
     await prefs.remove(keyTavilyKeys);
     notifyListeners();
-  }
-
-  Future<void> setDefaultType(String type) async {
-    if (['general', 'news', 'academic'].contains(type)) {
-      _defaultType = type;
-      await _persistString(keyDefaultType, type);
-      notifyListeners();
-    }
-  }
-
-  Future<void> setDefaultDepth(String depth) async {
-    if (['quick', 'standard', 'deep'].contains(depth)) {
-      _defaultDepth = depth;
-      await _persistString(keyDefaultDepth, depth);
-      notifyListeners();
-    }
   }
 
   Future<void> setReportLanguage(String language) async {

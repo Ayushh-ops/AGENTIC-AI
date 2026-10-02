@@ -48,7 +48,7 @@ Every evaluated claim is assigned an explicit verification status:
 - **Landing & Explanations**: Clean hero presentation, interactive topic composer, live pipeline walk-through, and verification criteria guide.
 - **Unified Workspace**: Fixed-height top bar (64px) with persistent navigation, secondary search controls during active runs, and expandable sidebar.
 - **Composer & Filters**: Multi-line topic composer with live character indicator, fast type selector pills, and depth configuration popover.
-- **Settings & Preferences**: Gear icon modal providing custom API key management, research defaults (type, depth, report language), appearance controls (theme, cursor spotlight, reduce motion), and history management.
+- **Settings & Preferences**: Gear icon modal providing custom API key management, report language selection, appearance controls (theme, cursor spotlight, reduce motion), and history management.
 - **Report Language**: Generate research reports in 12 languages (English, Hindi, Spanish, French, German, Portuguese, Bengali, Tamil, Telugu, Marathi, Arabic, Japanese) while preserving verbatim evidence quotes.
 - **Search History**: Client-side research history grouped by timestamp (Today, Yesterday, Earlier) with quick reload and deletion.
 - **Export & Import**: Download reports directly in the browser as Markdown (`.md`) or structured JSON (`.json`); import valid JSON reports back into your history.
@@ -70,9 +70,8 @@ The top-bar **Settings** dialog allows customizing runtime behavior without modi
   - **Transport Security**: Always use an HTTPS backend when deployed. A warning banner appears in Settings if connected over unencrypted HTTP.
   - Never commit API keys to version control.
 
-### 2. Research Defaults & Language
-- Configure default search type (**General**, **News**, **Academic**) and depth (**Quick**, **Standard**, **Deep**).
-- **Report Language**: Select your preferred language for the executive summary, key findings, and evaluated claim statements. Quotes and primary sources always stay verbatim in their original language.
+### 2. Report Language
+- **Report Language**: Select your preferred language for the executive summary, key findings, and evaluated claim statements (across 12 supported languages). Quotes and primary sources always stay verbatim in their original language.
 
 ### 3. Appearance & Data Controls
 - **Theme Mode**: Switch between System, Light, and Dark themes.

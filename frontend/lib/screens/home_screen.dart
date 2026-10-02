@@ -45,8 +45,8 @@ class _HomeScreenState extends State<HomeScreen>
   List<HistoryItem> _history = [];
   String? _selectedHistoryItemId;
 
-  String _selectedType = SettingsService.instance.defaultType; // 'general' | 'news' | 'academic'
-  String _selectedDepth = SettingsService.instance.defaultDepth; // 'quick' | 'standard' | 'deep'
+  String _selectedType = 'general'; // 'general' | 'news' | 'academic'
+  String _selectedDepth = 'standard'; // 'quick' | 'standard' | 'deep'
   String? _activeResearchType;
   String? _activeResearchDepth;
 
@@ -193,13 +193,13 @@ class _HomeScreenState extends State<HomeScreen>
               ['general', 'news', 'academic'].contains(savedType)) {
             _selectedType = savedType;
           } else {
-            _selectedType = SettingsService.instance.defaultType;
+            _selectedType = 'general';
           }
           if (savedDepth != null &&
               ['quick', 'standard', 'deep'].contains(savedDepth)) {
             _selectedDepth = savedDepth;
           } else {
-            _selectedDepth = SettingsService.instance.defaultDepth;
+            _selectedDepth = 'standard';
           }
         });
       }
@@ -1003,25 +1003,17 @@ class _HomeScreenState extends State<HomeScreen>
           icon: Icons.settings_outlined,
           tooltip: 'Settings',
           isDark: isDark,
-          size: screenWidth < 500 ? 34 : 38,
+          size: 38,
           onPressed: () => _showSettingsDialog(context),
         ),
-        SizedBox(width: screenWidth < 500 ? 6 : 8),
-        _buildIconButton(
-          icon: isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
-          tooltip: isDark ? 'Switch to light mode' : 'Switch to dark mode',
-          isDark: isDark,
-          size: screenWidth < 500 ? 34 : 38,
-          onPressed: _toggleTheme,
-        ),
-        SizedBox(width: screenWidth < 500 ? 8 : 12),
+        const SizedBox(width: 12),
         FilledButton(
           onPressed: _enterWorkspace,
           style: FilledButton.styleFrom(
             backgroundColor: acc,
             foregroundColor: onAcc,
             minimumSize: const Size(0, 42),
-            padding: EdgeInsets.symmetric(horizontal: screenWidth < 500 ? 12 : 20),
+            padding: const EdgeInsets.symmetric(horizontal: 20),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
             ),
@@ -1115,22 +1107,22 @@ class _HomeScreenState extends State<HomeScreen>
               ],
             ),
           ),
-          const SizedBox(height: 22),
+          const SizedBox(height: 16),
 
           // Lead paragraph
           ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 600),
+            constraints: const BoxConstraints(maxWidth: 520),
             child: Text(
               'Ask anything. Multi Agent Research Assistant searches the live web, checks each claim against independent sources, and labels how well each one is supported.',
               textAlign: TextAlign.center,
               style: AppTheme.bodyFont(
-                fontSize: 18,
+                fontSize: screenWidth < 700 ? 15 : 16,
                 color: mute,
                 height: 1.55,
               ),
             ),
           ),
-          const SizedBox(height: 36),
+          const SizedBox(height: 28),
 
           // Shared composer
           _buildComposer(context, isDark),
@@ -1207,7 +1199,7 @@ class _HomeScreenState extends State<HomeScreen>
                   onTap: () => _composerFocusNode.requestFocus(),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 150),
-                    constraints: const BoxConstraints(minHeight: 96),
+                    constraints: const BoxConstraints(minHeight: 84),
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
                       color: surface,
@@ -1221,52 +1213,48 @@ class _HomeScreenState extends State<HomeScreen>
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        TextField(
-                          controller: _topicController,
-                          focusNode: _composerFocusNode,
-                          enabled: !_isLoading,
-                          minLines: 2,
-                          maxLines: 6,
-                          maxLength: 200,
-                          buildCounter: (context, {required currentLength, required isFocused, maxLength}) => null,
-                          style: AppTheme.bodyFont(fontSize: 18, color: ink),
-                          decoration: InputDecoration(
-                            isDense: true,
-                            filled: false,
-                            contentPadding: EdgeInsets.zero,
-                            border: InputBorder.none,
-                            enabledBorder: InputBorder.none,
-                            focusedBorder: InputBorder.none,
-                            hintText: 'Ask or enter a research topic',
-                            hintStyle: AppTheme.bodyFont(fontSize: 18, color: mute),
-                          ),
-                          onChanged: (_) => setState(() {}),
-                        ),
-                        const SizedBox(height: 10),
                         Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          crossAxisAlignment: CrossAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            if (screenWidth >= 480)
-                              Expanded(
-                                child: Text(
-                                  'Enter to research · Shift+Enter for a new line',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: AppTheme.monoFont(fontSize: 12, color: mute),
+                            Padding(
+                              padding: const EdgeInsets.only(top: 2, right: 10),
+                              child: Icon(Icons.search, size: 18, color: mute),
+                            ),
+                            Expanded(
+                              child: TextField(
+                                controller: _topicController,
+                                focusNode: _composerFocusNode,
+                                enabled: !_isLoading,
+                                minLines: 2,
+                                maxLines: 6,
+                                maxLength: 200,
+                                buildCounter: (context, {required currentLength, required isFocused, maxLength}) => null,
+                                style: AppTheme.bodyFont(fontSize: 18, color: ink),
+                                decoration: InputDecoration(
+                                  isDense: true,
+                                  filled: false,
+                                  contentPadding: EdgeInsets.zero,
+                                  border: InputBorder.none,
+                                  enabledBorder: InputBorder.none,
+                                  focusedBorder: InputBorder.none,
+                                  hintText: 'Ask or enter a research topic',
+                                  hintStyle: AppTheme.bodyFont(fontSize: 15, color: mute),
                                 ),
-                              )
-                            else
-                              const Spacer(),
-                            const SizedBox(width: 8),
-                            Text(
-                              '${_topicController.text.length}/200',
-                              style: AppTheme.monoFont(
-                                fontSize: 12,
-                                color: _topicController.text.length >= 180 ? warn : mute,
+                                onChanged: (_) => setState(() {}),
                               ),
                             ),
                           ],
+                        ),
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: Text(
+                            '${_topicController.text.length}/200',
+                            style: AppTheme.monoFont(
+                              fontSize: 12,
+                              color: _topicController.text.length >= 180 ? warn : mute,
+                            ),
+                          ),
                         ),
                       ],
                     ),

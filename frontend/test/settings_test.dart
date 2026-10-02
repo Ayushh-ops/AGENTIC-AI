@@ -103,8 +103,6 @@ void main() {
       SharedPreferences.setMockInitialValues({
         'settings_groq_keys': ['gsk_test1', 'gsk_test2'],
         'settings_tavily_keys': ['tvly_test1'],
-        'settings_default_type': 'academic',
-        'settings_default_depth': 'deep',
         'settings_report_language': 'Hindi',
         'app_theme_mode': 'dark',
         'settings_cursor_spotlight': false,
@@ -117,8 +115,6 @@ void main() {
 
       expect(settings.groqKeys, ['gsk_test1', 'gsk_test2']);
       expect(settings.tavilyKeys, ['tvly_test1']);
-      expect(settings.defaultType, 'academic');
-      expect(settings.defaultDepth, 'deep');
       expect(settings.reportLanguage, 'Hindi');
       expect(settings.themeMode, ThemeMode.dark);
       expect(settings.cursorSpotlight, isFalse);
@@ -129,8 +125,6 @@ void main() {
       // Modify settings and verify persistence
       await settings.addGroqKey('gsk_test3');
       await settings.removeGroqKey(0);
-      await settings.setDefaultType('news');
-      await settings.setDefaultDepth('quick');
       await settings.setReportLanguage('Spanish');
       await settings.setThemeMode(ThemeMode.light);
       await settings.setCursorSpotlight(true);
@@ -138,8 +132,6 @@ void main() {
       await settings.setSaveHistory(true);
 
       expect(settings.groqKeys, ['gsk_test2', 'gsk_test3']);
-      expect(settings.defaultType, 'news');
-      expect(settings.defaultDepth, 'quick');
       expect(settings.reportLanguage, 'Spanish');
       expect(settings.themeMode, ThemeMode.light);
       expect(settings.cursorSpotlight, isTrue);
@@ -150,8 +142,6 @@ void main() {
       // Re-load and verify everything was stored
       await settings.load();
       expect(settings.groqKeys, ['gsk_test2', 'gsk_test3']);
-      expect(settings.defaultType, 'news');
-      expect(settings.defaultDepth, 'quick');
       expect(settings.reportLanguage, 'Spanish');
       expect(settings.themeMode, ThemeMode.light);
       expect(settings.cursorSpotlight, isTrue);
@@ -202,7 +192,7 @@ void main() {
       // Verify sections exist
       expect(find.text('Settings'), findsOneWidget);
       expect(find.text('API KEYS'), findsOneWidget);
-      expect(find.text('RESEARCH DEFAULTS'), findsOneWidget);
+      expect(find.text('REPORT'), findsOneWidget);
       expect(find.text('APPEARANCE'), findsOneWidget);
       expect(find.text('DATA'), findsOneWidget);
 
@@ -257,7 +247,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Settings'), findsOneWidget);
-      expect(find.text('RESEARCH DEFAULTS'), findsOneWidget);
+      expect(find.text('REPORT'), findsOneWidget);
     });
   });
 }
