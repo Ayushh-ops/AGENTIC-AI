@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -350,7 +352,6 @@ class _HomeScreenState extends State<HomeScreen>
   void _onSelectExamplePrompt(String prompt) {
     _topicController.text = prompt;
     setState(() {});
-    _executeAsk();
   }
 
   Future<void> _executeAsk() async {
@@ -364,6 +365,7 @@ class _HomeScreenState extends State<HomeScreen>
 
     _loadingTimer?.cancel();
     setState(() {
+      _showLanding = false;
       _isLoading = true;
       _loadingText = 'Thinking...';
       _errorMessage = null;
@@ -884,7 +886,6 @@ class _HomeScreenState extends State<HomeScreen>
 
     final double topPad = (screenHeight * 0.11).clamp(56.0, 120.0);
     final double h1Size = (screenWidth * 0.084).clamp(46.0, 104.0);
-    final bool canSubmit = !_isLoading && _topicController.text.trim().isNotEmpty;
 
     return Padding(
       padding: EdgeInsets.only(top: topPad, bottom: 40),
@@ -965,65 +966,8 @@ class _HomeScreenState extends State<HomeScreen>
           ),
           const SizedBox(height: 36),
 
-          // Search area: max-width 760 and centered, dropdowns left-aligned to box's left edge
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 760),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Dropdowns row (Type + Depth) above the box
-                Row(
-                  children: [
-                    _buildLandingDropdown(
-                      value: _selectedType,
-                      items: const ['general', 'news', 'academic'],
-                      labels: const ['General', 'News', 'Academic'],
-                      isDark: isDark,
-                      onChanged: (v) {
-                        if (v != null) {
-                          setState(() => _selectedType = v);
-                          _saveTypePreference(v);
-                        }
-                      },
-                    ),
-                    const SizedBox(width: 12),
-                    _buildLandingDropdown(
-                      value: _selectedDepth,
-                      items: const ['quick', 'standard', 'deep'],
-                      labels: const ['Quick', 'Standard', 'Deep'],
-                      isDark: isDark,
-                      onChanged: (v) {
-                        if (v != null) {
-                          setState(() => _selectedDepth = v);
-                          _saveDepthPreference(v);
-                        }
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-
-                // Search box + Research button row (vertically centered in one row, gap 12)
-                screenWidth >= 700
-                    ? Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          Expanded(child: _buildLandingSearchBox(isDark: isDark, canSubmit: canSubmit)),
-                          const SizedBox(width: 12),
-                          _buildLandingResearchButton(isDark: isDark, canSubmit: canSubmit, fullWidth: false),
-                        ],
-                      )
-                    : Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _buildLandingSearchBox(isDark: isDark, canSubmit: canSubmit),
-                          const SizedBox(height: 10),
-                          _buildLandingResearchButton(isDark: isDark, canSubmit: canSubmit, fullWidth: true),
-                        ],
-                      ),
-              ],
-            ),
-          ),
+          // Shared composer
+          _buildComposer(context, isDark),
           const SizedBox(height: 18),
 
           // Example chips
@@ -1055,166 +999,359 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildLandingDropdown({
-    required String value,
-    required List<String> items,
-    required List<String> labels,
-    required bool isDark,
-    required ValueChanged<String?> onChanged,
-  }) {
+  Widget _buildComposer(BuildContext context, bool isDark) {
+    final screenWidth = MediaQuery.of(context).size.width;
     final surface = isDark ? AppTheme.darkSurface : AppTheme.lightSurface;
     final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
     final ink = isDark ? AppTheme.darkInk : AppTheme.lightInk;
     final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
-    final acc = isDark ? AppTheme.darkAcc : AppTheme.lightAcc;
+    final at = isDark ? AppTheme.darkAt : AppTheme.lightAt;
+    final bool canSubmit = !_isLoading && _topicController.text.trim().isNotEmpty;
 
-    return Container(
-      height: 44,
-      decoration: BoxDecoration(
-        color: surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: line, width: 1.0),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: value,
-          isDense: true,
-          icon: Icon(Icons.keyboard_arrow_down, size: 16, color: mute),
-          style: AppTheme.bodyFont(fontSize: 14, color: ink),
-          dropdownColor: surface,
-          borderRadius: BorderRadius.circular(12),
-          onChanged: _isLoading ? null : onChanged,
-          items: List.generate(items.length, (i) {
-            final isSelected = items[i] == value;
-            return DropdownMenuItem<String>(
-              value: items[i],
-              child: Text(
-                labels[i],
-                style: AppTheme.bodyFont(
-                  fontSize: 14,
-                  color: isSelected ? acc : ink,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 760),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final bool isNarrow = screenWidth < 700 || constraints.maxWidth < 620;
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Large multiline input box: min 3 lines (~112px), grows to 6, radius 20, padding 16, font 18, surface fill, 1px line border (accent border on focus), maxLength 200 (counter shown only above 160). Enter submits, Shift+Enter = newline.
+              Focus(
+                onKeyEvent: (node, event) {
+                  if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.enter) {
+                    if (HardwareKeyboard.instance.isShiftPressed) {
+                      return KeyEventResult.ignored;
+                    } else {
+                      if (canSubmit) {
+                        _executeAsk();
+                      }
+                      return KeyEventResult.handled;
+                    }
+                  }
+                  return KeyEventResult.ignored;
+                },
+                child: TextField(
+                  controller: _topicController,
+                  enabled: !_isLoading,
+                  minLines: 3,
+                  maxLines: 6,
+                  maxLength: 200,
+                  buildCounter: (context, {required currentLength, required isFocused, maxLength}) {
+                    if (currentLength > 160) {
+                      return Text(
+                        '$currentLength/$maxLength',
+                        style: AppTheme.monoFont(fontSize: 11, color: mute),
+                      );
+                    }
+                    return null;
+                  },
+                  style: AppTheme.bodyFont(fontSize: 18, color: ink),
+                  decoration: InputDecoration(
+                    filled: true,
+                    fillColor: surface,
+                    hintText: 'Ask or enter a research topic',
+                    hintStyle: AppTheme.bodyFont(fontSize: 18, color: mute),
+                    contentPadding: const EdgeInsets.all(16),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(20),
+                      borderSide: BorderSide(color: line, width: 1.0),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(20),
+                      borderSide: BorderSide(color: line, width: 1.0),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(20),
+                      borderSide: BorderSide(color: at, width: 1.5),
+                    ),
+                  ),
+                  onChanged: (_) => setState(() {}),
                 ),
               ),
-            );
-          }),
-        ),
+              const SizedBox(height: 12),
+
+              // Directly BELOW the box, one row: LEFT = Type chips (General/News/Academic, pill segmented, always visible) + a "Filters" button (shows "Filters · Standard"). RIGHT = Research button. Under 700px: chips/Filters row, then full-width Research button.
+              if (!isNarrow)
+                Row(
+                  children: [
+                    Flexible(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _buildTypePills(isDark),
+                            const SizedBox(width: 8),
+                            _buildFiltersButton(isDark),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    _buildResearchButton(
+                      canSubmit: canSubmit,
+                      isDark: isDark,
+                      fullWidth: false,
+                      height: 40,
+                    ),
+                  ],
+                )
+              else ...[
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildTypePills(isDark),
+                      const SizedBox(width: 8),
+                      _buildFiltersButton(isDark),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                _buildResearchButton(
+                  canSubmit: canSubmit,
+                  isDark: isDark,
+                  fullWidth: true,
+                  height: 42,
+                ),
+              ],
+            ],
+          );
+        },
       ),
     );
   }
 
-  Widget _buildLandingSearchBox({required bool isDark, required bool canSubmit}) {
-    final surface = isDark ? AppTheme.darkSurface : AppTheme.lightSurface;
+  Widget _buildTypePills(bool isDark) {
     final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
-    final ink = isDark ? AppTheme.darkInk : AppTheme.lightInk;
-    final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
 
     return Container(
-      height: 52,
+      height: 36,
       decoration: BoxDecoration(
-        color: surface,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(AppTheme.radiusPill),
         border: Border.all(color: line, width: 1.0),
-        boxShadow: [isDark ? AppTheme.darkShadow : AppTheme.lightShadow],
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 14),
+      padding: const EdgeInsets.all(2),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Expanded(
-            child: TextField(
-              controller: _topicController,
-              enabled: !_isLoading,
-              style: AppTheme.bodyFont(fontSize: 18, color: ink),
-              textInputAction: TextInputAction.search,
-              decoration: InputDecoration(
-                hintText: 'Ask or enter a research topic',
-                hintStyle: AppTheme.bodyFont(fontSize: 18, color: mute),
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(vertical: 14),
-              ),
-              onChanged: (_) => setState(() {}),
-              onSubmitted: (_) {
-                if (canSubmit) {
-                  setState(() => _showLanding = false);
-                  _executeAsk();
-                }
-              },
-            ),
-          ),
-          if (_topicController.text.isNotEmpty)
-            IconButton(
-              icon: Icon(Icons.clear, size: 16, color: mute),
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-              onPressed: _isLoading
-                  ? null
-                  : () {
-                      _topicController.clear();
-                      setState(() {});
-                    },
-            ),
+          _buildTypePillItem('General', 'general', isDark),
+          const SizedBox(width: 2),
+          _buildTypePillItem('News', 'news', isDark),
+          const SizedBox(width: 2),
+          _buildTypePillItem('Academic', 'academic', isDark),
         ],
       ),
     );
   }
 
-  Widget _buildLandingResearchButton({
-    required bool isDark,
-    required bool canSubmit,
-    required bool fullWidth,
-  }) {
+  Widget _buildTypePillItem(String label, String value, bool isDark) {
+    final isSelected = _selectedType == value;
     final acc = isDark ? AppTheme.darkAcc : AppTheme.lightAcc;
     final onAcc = isDark ? AppTheme.darkOnAcc : AppTheme.lightOnAcc;
-    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
     final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
 
-    return SizedBox(
-      height: 52,
-      width: fullWidth ? double.infinity : null,
-      child: FilledButton(
-        onPressed: canSubmit
-            ? () {
-                setState(() => _showLanding = false);
-                _executeAsk();
-              }
-            : null,
-        style: FilledButton.styleFrom(
-          backgroundColor: acc,
-          foregroundColor: onAcc,
-          disabledBackgroundColor: line,
-          disabledForegroundColor: mute,
-          elevation: 0,
-          padding: const EdgeInsets.symmetric(horizontal: 28),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-          textStyle: AppTheme.bodyFont(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-          ),
+    return InkWell(
+      onTap: _isLoading
+          ? null
+          : () {
+              setState(() => _selectedType = value);
+              _saveTypePreference(value);
+            },
+      borderRadius: BorderRadius.circular(AppTheme.radiusPill),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        decoration: BoxDecoration(
+          color: isSelected ? acc : Colors.transparent,
+          borderRadius: BorderRadius.circular(AppTheme.radiusPill),
         ),
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 150),
-          child: _isLoading
-              ? SizedBox(
-                  key: const ValueKey('landing_spinner'),
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(onAcc),
-                  ),
-                )
-              : const Text(
-                  'Research',
-                  key: ValueKey('landing_label'),
-                ),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        alignment: Alignment.center,
+        child: Text(
+          label,
+          style: AppTheme.bodyFont(
+            fontSize: 12.5,
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+            color: isSelected ? onAcc : mute,
+          ),
         ),
       ),
+    );
+  }
+
+  Widget _buildFiltersButton(bool isDark) {
+    final surface = isDark ? AppTheme.darkSurface : AppTheme.lightSurface;
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+    final ink = isDark ? AppTheme.darkInk : AppTheme.lightInk;
+    final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
+    final depthLabel = _selectedDepth.isNotEmpty
+        ? (_selectedDepth[0].toUpperCase() + _selectedDepth.substring(1))
+        : 'Standard';
+
+    return InkWell(
+      onTap: _isLoading ? null : () => _openDepthFilterPopover(context),
+      borderRadius: BorderRadius.circular(AppTheme.radiusPill),
+      child: Container(
+        height: 36,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: surface,
+          borderRadius: BorderRadius.circular(AppTheme.radiusPill),
+          border: Border.all(color: line, width: 1.0),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Icon(Icons.tune, size: 14, color: mute),
+            const SizedBox(width: 6),
+            Text(
+              'Filters · ',
+              style: AppTheme.bodyFont(fontSize: 13, color: mute),
+            ),
+            Text(
+              depthLabel,
+              style: AppTheme.bodyFont(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: ink,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openDepthFilterPopover(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final surface = isDark ? AppTheme.darkSurface : AppTheme.lightSurface;
+    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
+    final ink = isDark ? AppTheme.darkInk : AppTheme.lightInk;
+    final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
+    final at = isDark ? AppTheme.darkAt : AppTheme.lightAt;
+
+    final options = [
+      {'value': 'quick', 'label': 'Quick', 'helper': '~3 claims, fast'},
+      {'value': 'standard', 'label': 'Standard', 'helper': '~5 claims, balanced'},
+      {'value': 'deep', 'label': 'Deep', 'helper': '~8 claims, slower, more sources'},
+    ];
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return Dialog(
+              backgroundColor: surface,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: line, width: 1.0),
+              ),
+              insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 340),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'RESEARCH DEPTH',
+                        style: AppTheme.bodyFont(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: mute,
+                          letterSpacing: 0.08,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      ...options.map((opt) {
+                        final val = opt['value']!;
+                        final isSelected = _selectedDepth == val;
+                        return InkWell(
+                          onTap: () {
+                            setState(() => _selectedDepth = val);
+                            _saveDepthPreference(val);
+                            Navigator.of(ctx).pop();
+                          },
+                          borderRadius: BorderRadius.circular(8),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                            margin: const EdgeInsets.only(bottom: 6),
+                            decoration: BoxDecoration(
+                              color: isSelected ? at.withValues(alpha: 0.08) : Colors.transparent,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: isSelected ? at.withValues(alpha: 0.3) : Colors.transparent,
+                                width: 1.0,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 16,
+                                  height: 16,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: isSelected ? at : mute,
+                                      width: 1.5,
+                                    ),
+                                  ),
+                                  alignment: Alignment.center,
+                                  child: isSelected
+                                      ? Container(
+                                          width: 8,
+                                          height: 8,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            color: at,
+                                          ),
+                                        )
+                                      : null,
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        opt['label']!,
+                                        style: AppTheme.bodyFont(
+                                          fontSize: 14,
+                                          fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                                          color: isSelected ? at : ink,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        opt['helper']!,
+                                        style: AppTheme.bodyFont(
+                                          fontSize: 12,
+                                          color: mute,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -2056,7 +2193,9 @@ class _HomeScreenState extends State<HomeScreen>
     final bool isNarrow = screenWidth < 700;
     final bool isSidebarVisible = isWide && _isSidebarOpen;
     final double hPad = screenWidth >= 1000 ? 24.0 : 16.0;
-    final double topBarHeight = isNarrow ? 252.0 : 180.0;
+    final bool hasResultOrActivity =
+        _isLoading || _askResponse != null || _errorMessage != null;
+    final double topBarHeight = hasResultOrActivity ? (isNarrow ? 164.0 : 118.0) : 68.0;
 
     return PreferredSize(
       preferredSize: Size.fromHeight(topBarHeight),
@@ -2073,7 +2212,7 @@ class _HomeScreenState extends State<HomeScreen>
         child: SafeArea(
           bottom: false,
           child: Padding(
-            padding: EdgeInsets.fromLTRB(hPad, 14, hPad, 14),
+            padding: EdgeInsets.fromLTRB(hPad, 10, hPad, 10),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2116,41 +2255,32 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                   ],
                 ),
-                const SizedBox(height: 10),
-
-                // Row 2 (directly ABOVE the search box): the Type segmented control and the Depth segmented control, left aligned, gap 12.
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
+                if (hasResultOrActivity) ...[
+                  const SizedBox(height: 10),
+                  // Compact top-bar search (input + Filters + Research, no big chips)
+                  if (!isNarrow)
+                    Row(
                       children: [
-                        _buildSegmentedTypeSelector(isDark),
-                        const SizedBox(width: 12),
-                        _buildSegmentedDepthSelector(isDark),
+                        Expanded(
+                          child: _buildCompactSearchInput(canSubmit: canSubmit, isDark: isDark),
+                        ),
+                        const SizedBox(width: 8),
+                        _buildFiltersButton(isDark),
+                        const SizedBox(width: 8),
+                        _buildResearchButton(canSubmit: canSubmit, isDark: isDark, fullWidth: false, height: 40),
+                      ],
+                    )
+                  else ...[
+                    _buildCompactSearchInput(canSubmit: canSubmit, isDark: isDark),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        _buildFiltersButton(isDark),
+                        const Spacer(),
+                        _buildResearchButton(canSubmit: canSubmit, isDark: isDark, fullWidth: false, height: 40),
                       ],
                     ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-
-                // Row 3: the search box containing ONLY the search icon + input, and the Research button OUTSIDE the box, to its right, same height, gap 12.
-                // Narrow (<700px): same order stacked: search box with the Research button below it full width.
-                if (!isNarrow)
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildSearchBoxOnly(canSubmit: canSubmit, isDark: isDark),
-                      ),
-                      const SizedBox(width: 12),
-                      _buildResearchButton(canSubmit: canSubmit, isDark: isDark, fullWidth: false),
-                    ],
-                  )
-                else ...[
-                  _buildSearchBoxOnly(canSubmit: canSubmit, isDark: isDark),
-                  const SizedBox(height: 10),
-                  _buildResearchButton(canSubmit: canSubmit, isDark: isDark, fullWidth: true),
+                  ],
                 ],
               ],
             ),
@@ -2224,7 +2354,6 @@ class _HomeScreenState extends State<HomeScreen>
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // 26x26 radius-8 square in --acc containing 10px ring in --onacc
             Container(
               width: 26,
               height: 26,
@@ -2233,21 +2362,13 @@ class _HomeScreenState extends State<HomeScreen>
                 borderRadius: BorderRadius.circular(8),
               ),
               alignment: Alignment.center,
-              child: Container(
-                width: 10,
-                height: 10,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: onAcc,
-                    width: 2.0,
-                  ),
-                ),
+              child: CustomPaint(
+                size: const Size(26, 26),
+                painter: _LogoPainter(color: onAcc),
               ),
             ),
             const SizedBox(width: 8),
             if (twoLines)
-              // Two-line variant for sidebar: wrap allowed, no ellipsis
               Flexible(
                 child: Text(
                   'Multi Agent\nResearch Assistant',
@@ -2279,7 +2400,7 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildSearchBoxOnly({
+  Widget _buildCompactSearchInput({
     required bool canSubmit,
     required bool isDark,
   }) {
@@ -2289,17 +2410,17 @@ class _HomeScreenState extends State<HomeScreen>
     final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
 
     return Container(
-      height: 48,
+      height: 40,
       decoration: BoxDecoration(
         color: surface,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: line, width: 1.0),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Icon(Icons.search, size: 18, color: mute),
+          Icon(Icons.search, size: 16, color: mute),
           const SizedBox(width: 8),
           Expanded(
             child: TextField(
@@ -2307,20 +2428,20 @@ class _HomeScreenState extends State<HomeScreen>
               enabled: !_isLoading,
               textInputAction: TextInputAction.search,
               style: AppTheme.bodyFont(
-                fontSize: 15,
+                fontSize: 14,
                 color: ink,
               ),
               decoration: InputDecoration(
                 hintText: 'Ask or enter a research topic',
                 hintStyle: AppTheme.bodyFont(
-                  fontSize: 15,
+                  fontSize: 14,
                   color: mute,
                 ),
                 border: InputBorder.none,
                 enabledBorder: InputBorder.none,
                 focusedBorder: InputBorder.none,
                 isDense: true,
-                contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                contentPadding: const EdgeInsets.symmetric(vertical: 10),
               ),
               onChanged: (_) => setState(() {}),
               onSubmitted: (_) {
@@ -2330,9 +2451,9 @@ class _HomeScreenState extends State<HomeScreen>
           ),
           if (_topicController.text.isNotEmpty)
             IconButton(
-              icon: Icon(Icons.clear, size: 16, color: mute),
+              icon: Icon(Icons.clear, size: 14, color: mute),
               padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+              constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
               onPressed: _isLoading
                   ? null
                   : () {
@@ -2349,31 +2470,57 @@ class _HomeScreenState extends State<HomeScreen>
     required bool canSubmit,
     required bool isDark,
     bool fullWidth = false,
+    double height = 44,
   }) {
     final acc = isDark ? AppTheme.darkAcc : AppTheme.lightAcc;
     final onAcc = isDark ? AppTheme.darkOnAcc : AppTheme.lightOnAcc;
-    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
-    final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
+    final at = isDark ? AppTheme.darkAt : AppTheme.lightAt;
 
     return SizedBox(
-      height: 48,
+      height: height,
       width: fullWidth ? double.infinity : null,
       child: FilledButton(
         onPressed: canSubmit ? _executeAsk : null,
-        style: FilledButton.styleFrom(
-          backgroundColor: acc,
-          foregroundColor: onAcc,
-          disabledBackgroundColor: line,
-          disabledForegroundColor: mute,
-          elevation: 0,
-          padding: const EdgeInsets.symmetric(horizontal: 22),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+        style: ButtonStyle(
+          backgroundColor: WidgetStateProperty.resolveWith<Color>((states) {
+            if (states.contains(WidgetState.disabled)) {
+              return Colors.transparent;
+            }
+            return acc;
+          }),
+          foregroundColor: WidgetStateProperty.resolveWith<Color>((states) {
+            if (states.contains(WidgetState.disabled)) {
+              return at.withValues(alpha: 0.6);
+            }
+            return onAcc;
+          }),
+          elevation: WidgetStateProperty.resolveWith<double>((states) {
+            if (states.contains(WidgetState.hovered) && !states.contains(WidgetState.disabled)) {
+              return 2.0;
+            }
+            return 0.0;
+          }),
+          side: WidgetStateProperty.resolveWith<BorderSide>((states) {
+            if (states.contains(WidgetState.disabled)) {
+              return BorderSide(color: at.withValues(alpha: 0.5), width: 1.0);
+            }
+            return BorderSide.none;
+          }),
+          shape: WidgetStateProperty.all(
+            RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
           ),
-          textStyle: AppTheme.bodyFont(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
+          padding: WidgetStateProperty.all(
+            const EdgeInsets.symmetric(horizontal: 22),
           ),
+          textStyle: WidgetStateProperty.all(
+            AppTheme.bodyFont(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          animationDuration: const Duration(milliseconds: 150),
         ),
         child: AnimatedSwitcher(
           duration: const Duration(milliseconds: 150),
@@ -2391,138 +2538,6 @@ class _HomeScreenState extends State<HomeScreen>
                   'Research',
                   key: ValueKey('ws_label'),
                 ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSegmentedDepthSelector(bool isDark) {
-    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
-
-    return Container(
-      height: 44,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(AppTheme.radiusSeg),
-        border: Border.all(color: line, width: 1.0),
-      ),
-      padding: const EdgeInsets.all(2),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _buildSegItem(
-              label: 'Quick',
-              isSelected: _selectedDepth == 'quick',
-              isDark: isDark,
-              onTap: () {
-                setState(() => _selectedDepth = 'quick');
-                _saveDepthPreference('quick');
-              },
-            ),
-            const SizedBox(width: 2),
-            _buildSegItem(
-              label: 'Standard',
-              isSelected: _selectedDepth == 'standard',
-              isDark: isDark,
-              onTap: () {
-                setState(() => _selectedDepth = 'standard');
-                _saveDepthPreference('standard');
-              },
-            ),
-            const SizedBox(width: 2),
-            _buildSegItem(
-              label: 'Deep',
-              isSelected: _selectedDepth == 'deep',
-              isDark: isDark,
-              onTap: () {
-                setState(() => _selectedDepth = 'deep');
-                _saveDepthPreference('deep');
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSegmentedTypeSelector(bool isDark) {
-    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
-
-    return Container(
-      height: 44,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(AppTheme.radiusSeg),
-        border: Border.all(color: line, width: 1.0),
-      ),
-      padding: const EdgeInsets.all(2),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _buildSegItem(
-              label: 'General',
-              isSelected: _selectedType == 'general',
-              isDark: isDark,
-              onTap: () {
-                setState(() => _selectedType = 'general');
-                _saveTypePreference('general');
-              },
-            ),
-            const SizedBox(width: 2),
-            _buildSegItem(
-              label: 'News',
-              isSelected: _selectedType == 'news',
-              isDark: isDark,
-              onTap: () {
-                setState(() => _selectedType = 'news');
-                _saveTypePreference('news');
-              },
-            ),
-            const SizedBox(width: 2),
-            _buildSegItem(
-              label: 'Academic',
-              isSelected: _selectedType == 'academic',
-              isDark: isDark,
-              onTap: () {
-                setState(() => _selectedType = 'academic');
-                _saveTypePreference('academic');
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSegItem({
-    required String label,
-    required bool isSelected,
-    required bool isDark,
-    required VoidCallback onTap,
-  }) {
-    final acc = isDark ? AppTheme.darkAcc : AppTheme.lightAcc;
-    final onAcc = isDark ? AppTheme.darkOnAcc : AppTheme.lightOnAcc;
-    final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
-
-    return InkWell(
-      onTap: _isLoading ? null : onTap,
-      borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        decoration: BoxDecoration(
-          color: isSelected ? acc : Colors.transparent,
-          borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-        child: Text(
-          label,
-          style: AppTheme.bodyFont(
-            fontSize: 12.5,
-            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-            color: isSelected ? onAcc : mute,
-          ),
         ),
       ),
     );
@@ -2557,7 +2572,7 @@ class _HomeScreenState extends State<HomeScreen>
 
               // Subtext (.empty text)
               Text(
-                'Type a topic above to begin.',
+                'Type a topic below to begin.',
                 textAlign: TextAlign.center,
                 style: AppTheme.bodyFont(
                   fontSize: 16,
@@ -2565,6 +2580,10 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
               ),
               const SizedBox(height: 32),
+
+              // Shared composer
+              _buildComposer(context, isDark),
+              const SizedBox(height: 24),
 
               // Starter Example Prompts (.eg button)
               Wrap(
@@ -3728,4 +3747,50 @@ class _StaggeredEntranceState extends State<_StaggeredEntrance>
       ),
     );
   }
+}
+
+class _LogoPainter extends CustomPainter {
+  final Color color;
+
+  const _LogoPainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final double cx = size.width / 2.0;
+    final double cy = size.height / 2.0;
+    const double r = 6.6;
+
+    final p1 = Offset(cx, cy - r);
+    final p2 = Offset(cx + r * math.cos(math.pi / 6), cy + r * math.sin(math.pi / 6));
+    final p3 = Offset(cx - r * math.cos(math.pi / 6), cy + r * math.sin(math.pi / 6));
+    final center = Offset(cx, cy);
+
+    final linePaint = Paint()
+      ..color = color
+      ..strokeWidth = 1.4
+      ..style = PaintingStyle.stroke;
+
+    final path = Path()
+      ..moveTo(p1.dx, p1.dy)
+      ..lineTo(p2.dx, p2.dy)
+      ..lineTo(p3.dx, p3.dy)
+      ..close();
+
+    canvas.drawPath(path, linePaint);
+
+    final fillPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    // 3 small circles at triangle vertices (r=2.2)
+    canvas.drawCircle(p1, 2.2, fillPaint);
+    canvas.drawCircle(p2, 2.2, fillPaint);
+    canvas.drawCircle(p3, 2.2, fillPaint);
+
+    // Filled center dot (r=2.6)
+    canvas.drawCircle(center, 2.6, fillPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _LogoPainter oldDelegate) => color != oldDelegate.color;
 }
