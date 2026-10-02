@@ -4,7 +4,7 @@ with verified claims, key findings, and auditable references.
 """
 
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from backend.app.services.llm_service import chat
 
 
@@ -12,25 +12,36 @@ def synthesize_report(
     topic: str,
     claims: List[Dict[str, Any]],
     sources: List[Dict[str, str]],
+    depth_config: Optional[Dict[str, Any]] = None,
 ) -> str:
     """
     Synthesize research findings into a structured Markdown document.
 
     Required structure only:
     - # Research Report: <topic> (Title)
-    - ## Executive Summary (max ~150 words)
-    - ## Key Findings (one bullet per claim, max 6)
+    - ## Executive Summary
+    - ## Key Findings
     - ## Evaluated Claims & Verification Audit
     - ## References
 
     Args:
         topic: The research topic investigated.
         claims: Verified claims list from the Fact Checker agent.
-        sources: Consulted sources list (capped at 12).
+        sources: Consulted sources list (capped per depth).
+        depth_config: Configuration dict controlling summary length and findings count.
 
     Returns:
         A complete Markdown formatted research report.
     """
+    if depth_config is None:
+        depth_config = {
+            "max_findings": 5,
+            "findings": 5,
+            "summary_length": "~130 words",
+        }
+    max_findings = depth_config.get("max_findings", depth_config.get("findings", 5))
+    summary_len = depth_config.get("summary_length", "~130 words")
+
     valid_sources = [s for s in sources if s.get("url")]
     valid_urls = {s["url"] for s in valid_sources}
     source_by_url = {s["url"]: s for s in valid_sources if s.get("url")}
@@ -52,9 +63,10 @@ def synthesize_report(
             claims_descriptions.append(f"- [Reported by only one source]: {stmt}")
 
     claims_text = "\n".join(claims_descriptions) if claims_descriptions else "- No substantiated claims available."
+    max_synth_sources = 10 if max_findings > 5 else 6
     sources_summary = "\n".join(
         f"- {s.get('title') or s.get('url')}: {(s.get('content') or '')[:250]}..."
-        for s in valid_sources[:6]
+        for s in valid_sources[:max_synth_sources]
     )
 
     half_supported = (supported_count >= (total_claims / 2)) if total_claims > 0 else False
@@ -69,9 +81,9 @@ def synthesize_report(
         "Strict rules:\n"
         "1. Write ONLY the following two sections in markdown:\n"
         "   ## Executive Summary\n"
-        "   (Max ~150 words. Objective, grounded strictly in the provided substantiated claims. Unsupported claims must NOT appear.)\n\n"
+        f"   ({summary_len}. Objective, grounded strictly in the provided substantiated claims. Unsupported claims must NOT appear.)\n\n"
         "   ## Key Findings\n"
-        "   (Bulleted list with one bullet per substantiated claim, maximum 6 bullets. Unsupported claims must NOT appear.)\n"
+        f"   (Bulleted list with one bullet per substantiated claim, maximum {max_findings} bullets. Unsupported claims must NOT appear.)\n"
         "2. Wording rules:\n"
         "   - The words 'verified', 'confirmed', 'established', or 'well-documented' may ONLY be used for claims marked [Corroborated by multiple independent sources].\n"
         "   - For claims marked [Reported by only one source], use cautious attribution such as 'reported by one source' or 'according to preliminary reports'. Never describe them as verified.\n"

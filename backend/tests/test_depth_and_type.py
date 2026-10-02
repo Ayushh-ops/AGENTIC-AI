@@ -140,12 +140,12 @@ def test_quick_makes_no_query_generation_call_and_no_fallback_search():
 
 
 def test_deep_uses_more_queries():
-    """Verify deep depth config generates up to 4 search queries and allows 5 fallback claims."""
+    """Verify deep depth config generates up to 4 search queries, allows 6 fallback claims, and caps sources at 20."""
     deep_config = DEPTH_SETTINGS["deep"]
     assert deep_config["skip_query_generation"] is False
     assert deep_config["max_queries"] == 4
-    assert deep_config["max_fallback_claims"] == 5
-    assert deep_config["sources_cap"] == 15
+    assert deep_config["max_fallback_claims"] == 6
+    assert deep_config["sources_cap"] == 20
 
     queries_output = "quantum computing overview\nqubit hardware architecture\nquantum supremacy benchmarks\npost-quantum cryptography algorithms"
 
@@ -265,3 +265,55 @@ def test_chat_mode_ignores_fields(monkeypatch):
             assert data_chat["research"] is None
             assert data_chat["llm_calls"] == 1
             assert data_chat["search_calls"] == 0
+
+
+def test_depth_settings_differ_and_extractor_receives_per_depth_cap():
+    """
+    Verify quick, standard, and deep settings differ in claim cap, findings,
+    summary length, and source cap, and that the claims extractor receives the
+    per-depth cap.
+    """
+    quick = DEPTH_SETTINGS["quick"]
+    standard = DEPTH_SETTINGS["standard"]
+    deep = DEPTH_SETTINGS["deep"]
+
+    # 1. Assert claim caps differ and match requirements
+    assert quick["claim_cap"] == 3
+    assert standard["claim_cap"] == 5
+    assert deep["claim_cap"] == 8
+    assert quick["claim_cap"] < standard["claim_cap"] < deep["claim_cap"]
+
+    # 2. Assert key findings caps differ and match requirements
+    assert quick["findings"] == 3
+    assert standard["findings"] == 5
+    assert deep["findings"] == 7
+    assert quick["findings"] < standard["findings"] < deep["findings"]
+
+    # 3. Assert summary length specifications differ and match requirements
+    assert quick["summary_length"] != standard["summary_length"]
+    assert standard["summary_length"] != deep["summary_length"]
+    assert "70 words" in quick["summary_length"]
+    assert "130 words" in standard["summary_length"]
+    assert "220 words" in deep["summary_length"]
+
+    # 4. Assert source caps differ and match requirements
+    assert quick["source_cap"] == 8
+    assert standard["source_cap"] == 12
+    assert deep["source_cap"] == 20
+    assert quick["source_cap"] < standard["source_cap"] < deep["source_cap"]
+
+    # 5. Assert claims extractor receives the per-depth cap in its prompt
+    mock_sources = [
+        {"title": "Src 1", "url": "https://example.com/1", "content": "Evidence text for testing claim extraction."}
+    ]
+    empty_claims_json = "[]"
+
+    for depth_name, expected_cap in [("quick", 3), ("standard", 5), ("deep", 8)]:
+        cfg = DEPTH_SETTINGS[depth_name]
+        with patch("backend.app.agents.fact_checker.chat", return_value=empty_claims_json) as mock_fc_chat:
+            check_facts(topic="Quantum computing", sources=mock_sources, depth_config=cfg)
+            # First LLM call is the claims extraction pass
+            assert mock_fc_chat.called
+            extract_system_prompt = mock_fc_chat.call_args_list[0][1]["system"]
+            assert f"Extract up to {expected_cap} key factual claims" in extract_system_prompt
+

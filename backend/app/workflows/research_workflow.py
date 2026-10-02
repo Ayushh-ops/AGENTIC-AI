@@ -17,7 +17,14 @@ DEPTH_SETTINGS: Dict[str, Dict[str, Any]] = {
         "max_queries": 1,
         "search_max_results": 6,
         "max_fallback_claims": 0,
-        "sources_cap": 12,
+        "sources_cap": 8,
+        "source_cap": 8,
+        "max_claims": 3,
+        "claim_cap": 3,
+        "max_findings": 3,
+        "findings": 3,
+        "summary_length": "2-3 sentences (~70 words)",
+        "excerpt_chars": 800,
     },
     "standard": {
         "skip_query_generation": False,
@@ -25,13 +32,27 @@ DEPTH_SETTINGS: Dict[str, Dict[str, Any]] = {
         "search_max_results": 3,
         "max_fallback_claims": 3,
         "sources_cap": 12,
+        "source_cap": 12,
+        "max_claims": 5,
+        "claim_cap": 5,
+        "max_findings": 5,
+        "findings": 5,
+        "summary_length": "~130 words",
+        "excerpt_chars": 800,
     },
     "deep": {
         "skip_query_generation": False,
         "max_queries": 4,
         "search_max_results": 3,
-        "max_fallback_claims": 5,
-        "sources_cap": 15,
+        "max_fallback_claims": 6,
+        "sources_cap": 20,
+        "source_cap": 20,
+        "max_claims": 8,
+        "claim_cap": 8,
+        "max_findings": 7,
+        "findings": 7,
+        "summary_length": "~220 words",
+        "excerpt_chars": 600,
     },
 }
 
@@ -86,7 +107,10 @@ def run_research(
 
         # Step 3: Synthesizer agent compiles verified claims and sources into Markdown report
         report_markdown = synthesize_report(
-            topic=topic_clean, claims=claims, sources=sources
+            topic=topic_clean,
+            claims=claims,
+            sources=sources,
+            depth_config=depth_config,
         )
 
         return {

@@ -246,21 +246,28 @@ def check_facts(
         depth_config = {
             "max_fallback_claims": 3,
             "sources_cap": 12,
+            "source_cap": 12,
+            "max_claims": 5,
+            "claim_cap": 5,
+            "excerpt_chars": 800,
         }
     max_fallback = depth_config.get("max_fallback_claims", 3)
-    sources_cap = depth_config.get("sources_cap", 12)
+    sources_cap = depth_config.get("sources_cap", depth_config.get("source_cap", 12))
+    max_claims = depth_config.get("max_claims", depth_config.get("claim_cap", 5))
+    excerpt_chars = depth_config.get("excerpt_chars", 800)
 
     # -------------------------------------------------------------
     # Step 1: Initial claim extraction pass
     # -------------------------------------------------------------
+    initial_sources_count = 10 if max_claims > 5 else 6
     sources_summary = "\n\n".join(
-        f"Source URL: {s.get('url')}\nTitle: {s.get('title')}\nExcerpt: {(s.get('content') or '')[:800]}"
-        for s in sources[:6]
+        f"Source URL: {s.get('url')}\nTitle: {s.get('title')}\nExcerpt: {(s.get('content') or '')[:excerpt_chars]}"
+        for s in sources[:initial_sources_count]
     )
 
     extract_system_prompt = (
         "You are an impartial fact-checking agent. Analyze the provided research topic and source excerpts.\n"
-        "Extract 3 to 5 key factual claims.\n"
+        f"Extract up to {max_claims} key factual claims.\n"
         "For each claim:\n"
         "1. Identify supporting Source URLs from the provided excerpts that substantiate it.\n"
         "2. Extract a direct evidence excerpt (at least 6 words, max 200 characters) from the source text.\n"
@@ -334,6 +341,11 @@ def check_facts(
     except (json.JSONDecodeError, TypeError):
         pass
 
+    # Ensure claims extracted do not exceed the per-depth max_claims
+    if len(claims) > max_claims:
+        claims = claims[:max_claims]
+        initial_validated_per_claim = initial_validated_per_claim[:max_claims]
+
     # Fallback if no claims extracted
     if not claims:
         first_url = next(iter(valid_urls), None)
@@ -361,7 +373,7 @@ def check_facts(
         ]
         numbered_sources_text = "\n\n".join(
             f"Source {idx} (domain: {_extract_registrable_domain(s.get('url', ''))}, url: {s.get('url')}):\n"
-            f"{(s.get('content') or '')[:800]}"
+            f"{(s.get('content') or '')[:excerpt_chars]}"
             for idx, s in enumerate(sources)
         )
 
@@ -461,7 +473,7 @@ def check_facts(
                 )
                 fb_sources_text = "\n\n".join(
                     f"Source {idx} (domain: {_extract_registrable_domain(s.get('url', ''))}, url: {s.get('url')}):\n"
-                    f"{(s.get('content') or '')[:800]}"
+                    f"{(s.get('content') or '')[:excerpt_chars]}"
                     for idx, s in enumerate(new_results)
                 )
                 fb_user = f"Claim to verify: {claim['statement']}\n\nNew Sources:\n{fb_sources_text}"
