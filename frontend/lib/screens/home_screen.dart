@@ -8,7 +8,6 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../api/api_service.dart';
-import '../main.dart';
 import '../models/history_item.dart';
 import '../services/settings_service.dart';
 import '../theme/app_theme.dart';
@@ -439,17 +438,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  void _toggleTheme() {
-    final current = themeModeNotifier.value;
-    final Brightness platformBrightness =
-        MediaQuery.platformBrightnessOf(context);
-    final isDark = current == ThemeMode.dark ||
-        (current == ThemeMode.system && platformBrightness == Brightness.dark);
-    final newMode = isDark ? ThemeMode.light : ThemeMode.dark;
-    themeModeNotifier.value = newMode;
-    saveThemeMode(newMode);
-  }
-
   void _onSelectExamplePrompt(String prompt) {
     _topicController.text = prompt;
     setState(() {});
@@ -812,7 +800,7 @@ class _HomeScreenState extends State<HomeScreen>
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
     final screenHeight = MediaQuery.of(context).size.height;
-    final bool isWide = screenWidth >= 860;
+    final bool isWide = screenWidth >= 1000;
     final bool canSubmit =
         !_isLoading && _topicController.text.trim().isNotEmpty;
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -2059,42 +2047,67 @@ class _HomeScreenState extends State<HomeScreen>
   ) {
     final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
 
-    return isWide
-        ? Row(
-            children: [
-              TweenAnimationBuilder<double>(
-                tween: Tween<double>(
-                  begin: 0.0,
-                  end: _isSidebarOpen ? 1.0 : 0.0,
-                ),
-                duration: const Duration(milliseconds: 350),
-                curve: Curves.easeInOutCubic,
-                builder: (context, factor, child) {
-                  if (factor <= 0.001) return const SizedBox.shrink();
-                  return Container(
-                    decoration: BoxDecoration(
-                      border: Border(right: BorderSide(color: line, width: 1.0)),
+    return Stack(
+      children: [
+        isWide
+            ? Row(
+                children: [
+                  TweenAnimationBuilder<double>(
+                    tween: Tween<double>(
+                      begin: 0.0,
+                      end: _isSidebarOpen ? 1.0 : 0.0,
                     ),
-                    child: ClipRect(
-                      child: Align(
-                        alignment: Alignment.topLeft,
-                        widthFactor: factor,
-                        child: SizedBox(
-                          width: 288.0,
-                          child: child,
+                    duration: const Duration(milliseconds: 350),
+                    curve: Curves.easeInOutCubic,
+                    builder: (context, factor, child) {
+                      if (factor <= 0.001) return const SizedBox.shrink();
+                      return Container(
+                        decoration: BoxDecoration(
+                          border: Border(right: BorderSide(color: line, width: 1.0)),
                         ),
-                      ),
-                    ),
-                  );
-                },
-                child: _buildSidebarContent(isDrawer: false),
-              ),
-              Expanded(
-                child: _buildMainContent(canSubmit: canSubmit, isWide: true),
-              ),
-            ],
-          )
-        : _buildMainContent(canSubmit: canSubmit, isWide: false);
+                        child: ClipRect(
+                          child: Align(
+                            alignment: Alignment.topLeft,
+                            widthFactor: factor,
+                            child: SizedBox(
+                              width: 288.0,
+                              child: child,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                    child: _buildSidebarContent(isDrawer: false),
+                  ),
+                  Expanded(
+                    child: _buildMainContent(canSubmit: canSubmit, isWide: true),
+                  ),
+                ],
+              )
+            : _buildMainContent(canSubmit: canSubmit, isWide: false),
+        Positioned(
+          left: 12,
+          top: 12,
+          child: Builder(
+            builder: (ctx) => _buildIconButton(
+              icon: Icons.menu,
+              tooltip: 'Toggle sidebar',
+              isDark: isDark,
+              size: 42,
+              onPressed: () {
+                if (isWide) {
+                  setState(() {
+                    _isSidebarOpen = !_isSidebarOpen;
+                  });
+                } else {
+                  Scaffold.of(ctx).openDrawer();
+                }
+              },
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _buildSidebarContent({required bool isDrawer}) {
@@ -2108,22 +2121,10 @@ class _HomeScreenState extends State<HomeScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Header: App logo mark + close button on drawer
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-              child: Row(
-                children: [
-                  Expanded(child: _buildBrandWordmark(isDark, twoLines: true)),
-                  if (isDrawer)
-                    _buildIconButton(
-                      icon: Icons.chevron_left,
-                      tooltip: 'Close sidebar',
-                      isDark: isDark,
-                      onPressed: () => Navigator.of(context).pop(),
-                    ),
-                ],
-              ),
-            ),
+            if (!isDrawer)
+              const SizedBox(height: 66)
+            else
+              const SizedBox(height: 16),
 
             // Top: Full-width New research button (.btn)
             Padding(
@@ -2455,37 +2456,14 @@ class _HomeScreenState extends State<HomeScreen>
     bool isDark,
     bool isWide,
   ) {
-    final bool isSidebarVisible = isWide && _isSidebarOpen;
-
     return Row(
       key: const ValueKey('workspace_top_bar_row_1'),
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        // Hamburger button at left (same x/y always)
-        Builder(
-          builder: (ctx) => _buildIconButton(
-            icon: Icons.menu,
-            tooltip: 'Toggle sidebar',
-            isDark: isDark,
-            size: 36,
-            onPressed: () {
-              if (isWide) {
-                setState(() {
-                  _isSidebarOpen = !_isSidebarOpen;
-                });
-              } else {
-                Scaffold.of(ctx).openDrawer();
-              }
-            },
-          ),
-        ),
-        const SizedBox(width: 12),
         Expanded(
           child: Align(
             alignment: Alignment.centerLeft,
-            child: !isSidebarVisible
-                ? _buildBrandWordmark(isDark)
-                : const SizedBox.shrink(),
+            child: _buildBrandWordmark(isDark),
           ),
         ),
         _buildAboutLink(isDark),
@@ -2496,14 +2474,6 @@ class _HomeScreenState extends State<HomeScreen>
           isDark: isDark,
           size: 36,
           onPressed: () => _showSettingsDialog(context),
-        ),
-        const SizedBox(width: 8),
-        _buildIconButton(
-          icon: isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
-          tooltip: isDark ? 'Switch to light mode' : 'Switch to dark mode',
-          isDark: isDark,
-          size: 36,
-          onPressed: _toggleTheme,
         ),
       ],
     );

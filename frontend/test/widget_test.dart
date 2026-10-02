@@ -317,7 +317,7 @@ void main() {
     expect(wsRow.mainAxisAlignment, MainAxisAlignment.spaceBetween);
   });
 
-  testWidgets('Stable top bar row 1 has height 64 and About/theme pinned to right across empty, loading, and result', (WidgetTester tester) async {
+  testWidgets('Stable top bar row 1 has height 64 and About/gear pinned to right across empty, loading, and result', (WidgetTester tester) async {
     tester.view.physicalSize = const Size(1000, 800);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
@@ -337,15 +337,22 @@ void main() {
     final double row1Top = tester.getTopLeft(row1Finder).dy;
 
     final aboutFinder = find.widgetWithText(TextButton, 'About');
-    final themeFinder = find.byTooltip('Switch to dark mode');
+    final gearFinder = find.byTooltip('Settings');
     expect(aboutFinder, findsOneWidget);
-    expect(themeFinder, findsOneWidget);
+    expect(gearFinder, findsOneWidget);
+
+    // Verify top bar has no theme icon in workspace
+    expect(find.byTooltip('Switch to dark mode'), findsNothing);
+    expect(find.byTooltip('Switch to light mode'), findsNothing);
+
+    // Wordmark always shown at left
+    expect(find.text('Multi Agent Research Assistant'), findsOneWidget);
 
     final row1RectEmpty = tester.getRect(row1Finder);
-    final themeRectEmpty = tester.getRect(themeFinder);
+    final gearRectEmpty = tester.getRect(gearFinder);
     final aboutRectEmpty = tester.getRect(aboutFinder);
-    expect(row1RectEmpty.right - themeRectEmpty.right, lessThanOrEqualTo(24.0));
-    expect(aboutRectEmpty.right, lessThanOrEqualTo(themeRectEmpty.left));
+    expect(row1RectEmpty.right - gearRectEmpty.right, lessThanOrEqualTo(24.0));
+    expect(aboutRectEmpty.right, lessThanOrEqualTo(gearRectEmpty.left));
     expect(find.byKey(const ValueKey('top_bar_row_2')), findsNothing);
 
     // --- 2. LOADING STATE ---
@@ -356,8 +363,8 @@ void main() {
 
     expect(tester.getSize(row1Finder).height, 64.0);
     expect(tester.getTopLeft(row1Finder).dy, row1Top);
-    final themeRectLoading = tester.getRect(themeFinder);
-    expect(row1RectEmpty.right - themeRectLoading.right, lessThanOrEqualTo(24.0));
+    final gearRectLoading = tester.getRect(gearFinder);
+    expect(row1RectEmpty.right - gearRectLoading.right, lessThanOrEqualTo(24.0));
     expect(find.byKey(const ValueKey('top_bar_row_2')), findsOneWidget);
 
     // --- 3. RESULT STATE ---
@@ -385,8 +392,8 @@ void main() {
 
     expect(tester.getSize(row1Finder).height, 64.0);
     expect(tester.getTopLeft(row1Finder).dy, row1Top);
-    final themeRectResult = tester.getRect(themeFinder);
-    expect(row1RectEmpty.right - themeRectResult.right, lessThanOrEqualTo(24.0));
+    final gearRectResult = tester.getRect(gearFinder);
+    expect(row1RectEmpty.right - gearRectResult.right, lessThanOrEqualTo(24.0));
     expect(find.byKey(const ValueKey('top_bar_row_2')), findsOneWidget);
   });
 
@@ -416,7 +423,7 @@ void main() {
     expect(find.byKey(const ValueKey('workspace_content')), findsNothing);
   });
 
-  testWidgets('Top bar row 1 alignment at widths 1280 and 1900 with sidebar open and closed', (WidgetTester tester) async {
+  testWidgets('Top bar row 1 alignment and sidebar toggle at widths 1280 and 1900 with sidebar open and closed', (WidgetTester tester) async {
     addTearDown(tester.view.resetPhysicalSize);
 
     for (final width in [1280.0, 1900.0]) {
@@ -431,34 +438,95 @@ void main() {
       await tester.pumpAndSettle();
 
       final hamburgerFinder = find.byTooltip('Toggle sidebar');
-      final themeFinder = find.byTooltip('Switch to dark mode');
+      final gearFinder = find.byTooltip('Settings');
+      final aboutFinder = find.widgetWithText(TextButton, 'About');
       expect(hamburgerFinder, findsOneWidget);
-      expect(themeFinder, findsOneWidget);
+      expect(gearFinder, findsOneWidget);
+      expect(aboutFinder, findsOneWidget);
+
+      // Verify no theme icon in top bar
+      expect(find.byTooltip('Switch to dark mode'), findsNothing);
+      expect(find.byTooltip('Switch to light mode'), findsNothing);
+
+      // Wordmark always shown at left in row 1
+      expect(find.text('Multi Agent Research Assistant'), findsOneWidget);
 
       // State 1: Sidebar open
+      expect(find.text('+ New research'), findsOneWidget);
       final hamburgerRectOpen = tester.getRect(hamburgerFinder);
-      final themeRectOpen = tester.getRect(themeFinder);
+      final gearRectOpen = tester.getRect(gearFinder);
+      final aboutRectOpen = tester.getRect(aboutFinder);
 
-      // Theme icon's right edge is within padding of the screen edge (24px at >=1000px)
+      // About + gear right edges stay within padding of the screen edge (24px at >=1000px)
       final double padding = width >= 1000 ? 24.0 : 16.0;
-      expect(themeRectOpen.right, closeTo(width - padding, 0.5));
-      expect(hamburgerRectOpen.left, closeTo(padding, 0.5));
+      expect(gearRectOpen.right, closeTo(width - padding, 0.5));
+      expect(aboutRectOpen.right, lessThanOrEqualTo(gearRectOpen.left));
+      expect(gearRectOpen.right, lessThanOrEqualTo(width - padding + 0.5));
+
+      // Hamburger button is pinned below top bar (12px from left edge and 12px below top bar)
+      expect(hamburgerRectOpen.left, equals(12.0));
+      expect(hamburgerRectOpen.top, equals(77.0));
+      expect(hamburgerRectOpen.width, equals(42.0));
+      expect(hamburgerRectOpen.height, equals(42.0));
 
       // Toggle sidebar to closed
       await tester.tap(hamburgerFinder);
       await tester.pumpAndSettle();
 
       // State 2: Sidebar closed
+      expect(find.text('+ New research'), findsNothing);
       final hamburgerRectClosed = tester.getRect(hamburgerFinder);
-      final themeRectClosed = tester.getRect(themeFinder);
+      final gearRectClosed = tester.getRect(gearFinder);
+      final aboutRectClosed = tester.getRect(aboutFinder);
 
-      // Hamburger position is identical
-      expect(hamburgerRectClosed.topLeft, equals(hamburgerRectOpen.topLeft));
+      // Hamburger position is identical open vs closed
+      expect(hamburgerRectClosed, equals(hamburgerRectOpen));
 
-      // Theme icon's right edge is equal in both states and within padding
-      expect(themeRectClosed.right, equals(themeRectOpen.right));
-      expect(themeRectClosed.right, closeTo(width - padding, 0.5));
+      // Wordmark is STILL shown in row 1 when sidebar is closed
+      expect(find.text('Multi Agent Research Assistant'), findsOneWidget);
+
+      // About + gear right edges stay within padding
+      expect(gearRectClosed.right, equals(gearRectOpen.right));
+      expect(aboutRectClosed.right, equals(aboutRectOpen.right));
+      expect(gearRectClosed.right, closeTo(width - padding, 0.5));
+
+      // Toggle back to open
+      await tester.tap(hamburgerFinder);
+      await tester.pumpAndSettle();
+      expect(find.text('+ New research'), findsOneWidget);
+      expect(tester.getRect(hamburgerFinder), equals(hamburgerRectOpen));
     }
+  });
+
+  testWidgets('Sidebar toggle on narrow screen (<1000px) is at identical pinned position and opens drawer', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(768, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    await tester.pumpWidget(const ResearchAssistantApp());
+    await tester.pumpAndSettle();
+
+    // Enter workspace
+    await tester.tap(find.widgetWithText(FilledButton, 'Get started').first);
+    await tester.pumpAndSettle();
+
+    final hamburgerFinder = find.byTooltip('Toggle sidebar');
+    expect(hamburgerFinder, findsOneWidget);
+
+    final hamburgerRect = tester.getRect(hamburgerFinder);
+    expect(hamburgerRect.left, equals(12.0));
+    expect(hamburgerRect.top, equals(77.0));
+    expect(hamburgerRect.width, equals(42.0));
+    expect(hamburgerRect.height, equals(42.0));
+
+    // Tap toggle to open drawer
+    await tester.tap(hamburgerFinder);
+    await tester.pumpAndSettle();
+
+    // Drawer is open: New research is visible inside the drawer
+    expect(find.text('+ New research'), findsOneWidget);
+    expect(find.text('Import report'), findsOneWidget);
+    expect(find.text('RECENT'), findsOneWidget);
   });
 
   testWidgets('Composer displays counter inside the box and hint is absent', (WidgetTester tester) async {
