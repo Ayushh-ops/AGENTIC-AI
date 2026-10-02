@@ -51,11 +51,13 @@ def test_defaults_apply_when_fields_are_missing(monkeypatch):
         # Case A: fields completely omitted
         res1 = client.post("/ask", json={"message": "Quantum computing in 2026"})
         assert res1.status_code == 200
-        mock_run.assert_called_with(
-            topic="Quantum computing in 2026",
-            depth="standard",
-            research_type="general",
-        )
+        # Check only the required args; new optional args (groq_keys, tavily_keys, language) may also be present
+        call_kwargs_a = mock_run.call_args.kwargs
+        assert call_kwargs_a.get("topic") == "Quantum computing in 2026"
+        assert call_kwargs_a.get("depth") == "standard"
+        assert call_kwargs_a.get("research_type") == "general"
+
+        mock_run.reset_mock()
 
         # Case B: explicit None / null passed
         res2 = client.post(
@@ -63,11 +65,10 @@ def test_defaults_apply_when_fields_are_missing(monkeypatch):
             json={"message": "Quantum computing in 2026", "depth": None, "research_type": None},
         )
         assert res2.status_code == 200
-        mock_run.assert_called_with(
-            topic="Quantum computing in 2026",
-            depth="standard",
-            research_type="general",
-        )
+        call_kwargs_b = mock_run.call_args.kwargs
+        assert call_kwargs_b.get("topic") == "Quantum computing in 2026"
+        assert call_kwargs_b.get("depth") == "standard"
+        assert call_kwargs_b.get("research_type") == "general"
 
 
 def test_invalid_enum_returns_422():
@@ -101,11 +102,11 @@ def test_quick_makes_no_query_generation_call_and_no_fallback_search():
             # Chat query generation must be skipped
             mock_chat.assert_not_called()
             # Search must be called once with topic as query and max_results 6
-            mock_search.assert_called_once_with(
-                query="Quantum computing",
-                max_results=6,
-                research_type="general",
-            )
+            assert mock_search.call_count == 1
+            search_kwargs = mock_search.call_args.kwargs
+            assert search_kwargs.get("query") == "Quantum computing"
+            assert search_kwargs.get("max_results") == 6
+            assert search_kwargs.get("research_type") == "general"
             assert len(sources) == 1
 
     # 2. Fact checker in quick mode skips fallback search

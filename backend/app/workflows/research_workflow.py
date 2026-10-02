@@ -3,7 +3,7 @@ Research Workflow: Coordinates the Researcher, Fact Checker, and Synthesizer age
 to produce a validated research report from a user topic.
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 from backend.app.agents.researcher import research_topic
 from backend.app.agents.fact_checker import check_facts
 from backend.app.agents.synthesizer import synthesize_report
@@ -66,6 +66,9 @@ def run_research(
     topic: str,
     depth: str = "standard",
     research_type: str = "general",
+    groq_keys: Optional[List[str]] = None,
+    tavily_keys: Optional[List[str]] = None,
+    language: str = "English",
 ) -> Dict[str, Any]:
     """
     Execute the full end-to-end multi-agent research workflow.
@@ -74,6 +77,9 @@ def run_research(
         topic: The user's research topic.
         depth: "quick" | "standard" | "deep" (default "standard").
         research_type: "general" | "news" | "academic" (default "general").
+        groq_keys: Optional per-request Groq API key list for rotation.
+        tavily_keys: Optional per-request Tavily API key list for rotation.
+        language: Language for report output (default "English").
 
     Returns:
         Dict with keys: 'topic', 'report_markdown', 'sources', 'claims'.
@@ -95,6 +101,8 @@ def run_research(
             topic=topic_clean,
             depth_config=depth_config,
             research_type=type_clean,
+            groq_keys=groq_keys,
+            tavily_keys=tavily_keys,
         )
 
         # Step 2: Fact checker audits the retrieved sources and extracts verified claims
@@ -103,6 +111,9 @@ def run_research(
             sources=sources,
             depth_config=depth_config,
             research_type=type_clean,
+            groq_keys=groq_keys,
+            tavily_keys=tavily_keys,
+            language=language,
         )
 
         # Step 3: Synthesizer agent compiles verified claims and sources into Markdown report
@@ -111,6 +122,8 @@ def run_research(
             claims=claims,
             sources=sources,
             depth_config=depth_config,
+            language=language,
+            groq_keys=groq_keys,
         )
 
         return {

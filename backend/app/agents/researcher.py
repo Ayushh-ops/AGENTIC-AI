@@ -12,6 +12,8 @@ def research_topic(
     topic: str,
     depth_config: Optional[Dict[str, Any]] = None,
     research_type: str = "general",
+    groq_keys: Optional[List[str]] = None,
+    tavily_keys: Optional[List[str]] = None,
 ) -> List[Dict[str, str]]:
     """
     Generate focused search queries for a topic, query Tavily, and return unique sources.
@@ -20,6 +22,8 @@ def research_topic(
         topic: The user's research topic.
         depth_config: Configuration dict controlling query generation and search count.
         research_type: "general" | "news" | "academic" (default "general").
+        groq_keys: Optional per-request Groq API key list for rotation.
+        tavily_keys: Optional per-request Tavily API key list for rotation.
 
     Returns:
         A list of de-duplicated source dictionaries containing 'title', 'url', and 'content'.
@@ -46,7 +50,12 @@ def research_topic(
         )
         user_prompt = f"Topic: {topic}\nProvide up to {max_queries} search queries:"
 
-        llm_output = chat(system=system_prompt, user=user_prompt, temperature=0.2)
+        llm_output = chat(
+            system=system_prompt,
+            user=user_prompt,
+            temperature=0.2,
+            api_keys=groq_keys,
+        )
 
         # Parse queries from output lines defensively
         queries = []
@@ -69,6 +78,7 @@ def research_topic(
             query=query,
             max_results=search_max_results,
             research_type=research_type,
+            api_keys=tavily_keys,
         )
         for item in results:
             url = item.get("url", "").strip()

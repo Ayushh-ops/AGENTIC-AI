@@ -96,11 +96,11 @@ def test_quantum_computing_2026_research_no_classifier_call(monkeypatch):
                 data = response.json()
                 assert data["mode"] == "research"
                 assert data["research"]["topic"] == "Quantum computing in 2026"
-                mock_run.assert_called_once_with(
-                    topic="Quantum computing in 2026",
-                    depth="standard",
-                    research_type="general",
-                )
+                # Verify required args; new optional kwargs (groq_keys, tavily_keys, language) may also be present
+                call_kwargs = mock_run.call_args.kwargs
+                assert call_kwargs.get("topic") == "Quantum computing in 2026"
+                assert call_kwargs.get("depth") == "standard"
+                assert call_kwargs.get("research_type") == "general"
                 # Classify was called but made NO chat calls
                 mock_chat.assert_not_called()
 
@@ -121,11 +121,11 @@ def test_unclear_one_word_input_one_classifier_call(monkeypatch):
             call_kwargs = mock_classifier_chat.call_args[1]
             assert call_kwargs.get("max_tokens") == 5
             assert call_kwargs.get("temperature") == 0.0
-            mock_run.assert_called_once_with(
-                topic="quantum",
-                depth="standard",
-                research_type="general",
-            )
+            # Verify required args; new optional kwargs may also be present
+            run_kwargs = mock_run.call_args.kwargs
+            assert run_kwargs.get("topic") == "quantum"
+            assert run_kwargs.get("depth") == "standard"
+            assert run_kwargs.get("research_type") == "general"
 
 
 def test_classifier_failure_defaults_to_research(monkeypatch):
@@ -139,11 +139,10 @@ def test_classifier_failure_defaults_to_research(monkeypatch):
             assert response.status_code == 200
             data = response.json()
             assert data["mode"] == "research"
-            mock_run.assert_called_once_with(
-                topic="quantum",
-                depth="standard",
-                research_type="general",
-            )
+            run_kwargs = mock_run.call_args.kwargs
+            assert run_kwargs.get("topic") == "quantum"
+            assert run_kwargs.get("depth") == "standard"
+            assert run_kwargs.get("research_type") == "general"
 
 
 def test_chat_reply_uses_exactly_one_llm_call_and_zero_search_calls(monkeypatch):
@@ -173,11 +172,11 @@ def test_ask_research_path_calls_workflow(monkeypatch):
         data = response.json()
         assert data["mode"] == "research"
         assert data["research"]["topic"] == "Quantum computing in 2026"
-        mock_run.assert_called_once_with(
-            topic="Compare solar and wind energy",
-            depth="standard",
-            research_type="general",
-        )
+        # Verify required args; new optional kwargs (groq_keys, tavily_keys, language) may also be present
+        run_kwargs = mock_run.call_args.kwargs
+        assert run_kwargs.get("topic") == "Compare solar and wind energy"
+        assert run_kwargs.get("depth") == "standard"
+        assert run_kwargs.get("research_type") == "general"
 
 
 def test_ask_validation_errors():
@@ -200,14 +199,14 @@ def test_ask_validation_errors():
 
 
 def test_ask_missing_keys_and_error_handling(monkeypatch):
-    """Verify 503 for missing keys in research mode and 502 for workflow errors."""
+    """Verify 400 for missing keys in research mode (no header keys + no .env) and 502 for workflow errors."""
     monkeypatch.setattr(settings, "groq_api_key", None)
     monkeypatch.setattr(settings, "tavily_api_key", None)
 
-    # Research signal with missing keys -> 503
-    res_503 = client.post("/ask", json={"message": "Quantum computing in 2026"})
-    assert res_503.status_code == 503
-    assert res_503.json()["detail"] == "API keys not configured."
+    # Research signal with missing keys -> 400 (no API key configured)
+    res_400 = client.post("/ask", json={"message": "Quantum computing in 2026"})
+    assert res_400.status_code == 400
+    assert "no api key" in res_400.json()["detail"].lower()
 
     # Workflow error -> 502
     monkeypatch.setattr(settings, "groq_api_key", "test-key")

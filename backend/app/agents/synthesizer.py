@@ -13,6 +13,8 @@ def synthesize_report(
     claims: List[Dict[str, Any]],
     sources: List[Dict[str, str]],
     depth_config: Optional[Dict[str, Any]] = None,
+    language: str = "English",
+    groq_keys: Optional[List[str]] = None,
 ) -> str:
     """
     Synthesize research findings into a structured Markdown document.
@@ -29,6 +31,8 @@ def synthesize_report(
         claims: Verified claims list from the Fact Checker agent.
         sources: Consulted sources list (capped per depth).
         depth_config: Configuration dict controlling summary length and findings count.
+        language: Language for the Executive Summary and Key Findings (default "English").
+        groq_keys: Optional per-request Groq API key list for rotation.
 
     Returns:
         A complete Markdown formatted research report.
@@ -76,9 +80,16 @@ def synthesize_report(
         if not half_supported else ""
     )
 
+    # Language instruction: write summary and findings in the requested language
+    lang_note = (
+        f" Write the Executive Summary and Key Findings in {language}."
+        if language != "English"
+        else ""
+    )
+
     system_prompt = (
         "You are an objective technical research writer. Synthesize the provided evaluated claims into a concise report.\n"
-        "Strict rules:\n"
+        f"Strict rules:{lang_note}\n"
         "1. Write ONLY the following two sections in markdown:\n"
         "   ## Executive Summary\n"
         f"   ({summary_len}. Objective, grounded strictly in the provided substantiated claims. Unsupported claims must NOT appear.)\n\n"
@@ -103,7 +114,12 @@ def synthesize_report(
         "Compose the Executive Summary and Key Findings according to the rules above."
     )
 
-    raw_narrative = chat(system=system_prompt, user=user_prompt, temperature=0.1)
+    raw_narrative = chat(
+        system=system_prompt,
+        user=user_prompt,
+        temperature=0.1,
+        api_keys=groq_keys,
+    )
 
     # Post-processing: strip any leaked status tags like 【...】 or [SUPPORTED] or [SINGLE_SOURCE]
     narrative_cleaned = re.sub(r"【.*?】", "", raw_narrative)

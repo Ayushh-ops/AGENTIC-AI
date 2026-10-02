@@ -73,6 +73,13 @@ class ResearchResponse(BaseModel):
     claims: List[ClaimItem]
 
 
+ALLOWED_LANGUAGES = {
+    "English", "Hindi", "Spanish", "French", "German",
+    "Portuguese", "Bengali", "Tamil", "Telugu", "Marathi",
+    "Arabic", "Japanese",
+}
+
+
 class AskRequest(BaseModel):
     """Payload for submitting a message or query to POST /ask."""
     message: str = Field(
@@ -88,6 +95,13 @@ class AskRequest(BaseModel):
     depth: Optional[ResearchDepth] = Field(
         default=ResearchDepth.standard,
         description="Optional research depth: 'quick' | 'standard' | 'deep' (default 'standard').",
+    )
+    language: str = Field(
+        default="English",
+        description=(
+            "Language for the report output. Allowed: English, Hindi, Spanish, French, German, "
+            "Portuguese, Bengali, Tamil, Telugu, Marathi, Arabic, Japanese."
+        ),
     )
 
     @field_validator("message")
@@ -111,6 +125,19 @@ class AskRequest(BaseModel):
         if value is None:
             return ResearchDepth.standard
         return value
+
+    @field_validator("language", mode="before")
+    @classmethod
+    def validate_language(cls, value: Any) -> str:
+        if value is None:
+            return "English"
+        lang = str(value).strip()
+        if lang not in ALLOWED_LANGUAGES:
+            allowed = ", ".join(sorted(ALLOWED_LANGUAGES))
+            raise ValueError(
+                f"Unsupported language '{lang}'. Allowed values: {allowed}."
+            )
+        return lang
 
 
 class AskResponse(BaseModel):

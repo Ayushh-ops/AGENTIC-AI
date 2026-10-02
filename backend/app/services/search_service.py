@@ -44,6 +44,9 @@ ACADEMIC_INCLUDE_DOMAINS = [
     "mdpi.com",
 ]
 
+# Statuses that trigger a key rotation
+_ROTATE_STATUSES = {429, 401, 403}
+
 
 class SearchError(Exception):
     """Exception raised when a search operation fails or API key is missing."""
@@ -61,64 +64,99 @@ def _is_excluded_domain(url: str) -> bool:
         return False
 
 
-def _execute_tavily_request(payload: dict) -> List[Dict[str, str]]:
-    """Execute a single HTTP request to Tavily with retries and rate limit handling."""
+def _execute_tavily_request(
+    payload: dict,
+    api_keys: Optional[List[str]] = None,
+) -> List[Dict[str, str]]:
+    """Execute a single HTTP request to Tavily with retries and key rotation."""
     counter = search_call_counter.get()
     if counter is not None:
         counter.append(1)
 
-    headers = {
+    # Build ordered key list
+    keys_to_try: List[str] = []
+    if api_keys:
+        keys_to_try = list(api_keys)
+    if not keys_to_try and settings.tavily_api_key:
+        keys_to_try = [settings.tavily_api_key]
+
+    if not keys_to_try:
+        raise SearchError("No Tavily API key configured. Add keys in Settings or in the backend .env.")
+
+    base_headers = {
         "Content-Type": "application/json",
     }
 
-    max_retries = 2
-    for attempt in range(max_retries + 1):
-        try:
-            with httpx.Client(timeout=20.0) as client:
-                response = client.post(TAVILY_API_URL, headers=headers, json=payload)
-                if response.status_code == 429 and attempt < max_retries:
-                    retry_after_str = response.headers.get("retry-after")
-                    try:
-                        wait_time = float(retry_after_str) if retry_after_str else 2.0 * (attempt + 1)
-                    except ValueError:
-                        wait_time = 2.0 * (attempt + 1)
-                    time.sleep(min(wait_time, 5.0))
-                    continue
-                if response.status_code != 200:
-                    raise SearchError(
-                        f"Tavily API error (status {response.status_code}): {response.text}"
-                    )
-                data = response.json()
-                raw_results = data.get("results", [])
-                results: List[Dict[str, str]] = []
-                for item in raw_results:
-                    url = item.get("url", "") or ""
-                    if _is_excluded_domain(url):
-                        continue
-                    raw_content = item.get("content", "") or ""
-                    results.append({
-                        "title": item.get("title", "") or "",
-                        "url": url,
-                        "content": raw_content[:800],
-                    })
-                return results
-        except httpx.RequestError as exc:
-            if attempt < max_retries:
-                time.sleep(1.5)
-                continue
-            raise SearchError(f"HTTP request to Tavily failed: {exc}") from exc
-        except Exception as exc:
-            if isinstance(exc, SearchError):
-                raise
-            raise SearchError(f"Unexpected error in search service: {exc}") from exc
+    max_retries_per_key = 1
+    last_error: Optional[Exception] = None
 
-    raise SearchError("Tavily search failed after retries.")
+    for key_index, api_key in enumerate(keys_to_try):
+        # Inject the current key into the payload copy
+        keyed_payload = {**payload, "api_key": api_key}
+
+        for attempt in range(max_retries_per_key + 1):
+            try:
+                with httpx.Client(timeout=20.0) as client:
+                    response = client.post(TAVILY_API_URL, headers=base_headers, json=keyed_payload)
+
+                    if response.status_code in _ROTATE_STATUSES:
+                        if response.status_code == 429 and attempt < max_retries_per_key and key_index == len(keys_to_try) - 1:
+                            # Last key; honour retry-after once
+                            retry_after_str = response.headers.get("retry-after")
+                            try:
+                                wait_time = float(retry_after_str) if retry_after_str else 2.0 * (attempt + 1)
+                            except ValueError:
+                                wait_time = 2.0 * (attempt + 1)
+                            time.sleep(min(wait_time, 5.0))
+                            continue
+                        # Rotate
+                        last_error = SearchError(
+                            f"Tavily API returned status {response.status_code} (key rotated)."
+                        )
+                        break  # advance to next key
+
+                    if response.status_code != 200:
+                        raise SearchError(
+                            f"Tavily API error (status {response.status_code}): {response.text}"
+                        )
+
+                    data = response.json()
+                    raw_results = data.get("results", [])
+                    results: List[Dict[str, str]] = []
+                    for item in raw_results:
+                        url = item.get("url", "") or ""
+                        if _is_excluded_domain(url):
+                            continue
+                        raw_content = item.get("content", "") or ""
+                        results.append({
+                            "title": item.get("title", "") or "",
+                            "url": url,
+                            "content": raw_content[:800],
+                        })
+                    return results
+
+            except httpx.RequestError:
+                if attempt < max_retries_per_key:
+                    time.sleep(1.5)
+                    continue
+                last_error = SearchError("HTTP request to Tavily failed after retries.")
+                break
+            except SearchError:
+                raise
+            except Exception as exc:
+                raise SearchError("Unexpected error in search service.") from exc
+
+    raise SearchError(
+        "All Tavily API keys failed. "
+        + (str(last_error) if last_error else "Request failed after retries.")
+    )
 
 
 def search(
     query: str,
     max_results: int = 5,
     research_type: str = "general",
+    api_keys: Optional[List[str]] = None,
 ) -> List[Dict[str, str]]:
     """
     Query the Tavily Search API and return normalized search results.
@@ -127,19 +165,15 @@ def search(
         query: Search query string.
         max_results: Maximum number of search results to return (default 5).
         research_type: 'general', 'news', or 'academic' (default 'general').
+        api_keys: Optional per-request list of Tavily API keys to rotate through.
 
     Returns:
         List of dicts, each containing 'title', 'url', and 'content' (truncated to 800 chars).
 
     Raises:
-        SearchError: If TAVILY_API_KEY is not configured or the request fails.
+        SearchError: If no Tavily key is available or all keys fail.
     """
-    api_key = settings.tavily_api_key
-    if not api_key:
-        raise SearchError("Tavily API key is not configured.")
-
     base_payload = {
-        "api_key": api_key,
         "query": query,
         "max_results": max_results,
     }
@@ -153,21 +187,21 @@ def search(
             "days": 30,
             "exclude_domains": EXCLUDED_DOMAINS,
         }
-        return _execute_tavily_request(payload)
+        return _execute_tavily_request(payload, api_keys=api_keys)
 
     elif type_clean == "academic":
         payload = {
             **base_payload,
             "include_domains": ACADEMIC_INCLUDE_DOMAINS,
         }
-        results = _execute_tavily_request(payload)
+        results = _execute_tavily_request(payload, api_keys=api_keys)
         # If academic search returns ZERO results, retry once without include_domains
         if not results:
             fallback_payload = {
                 **base_payload,
                 "exclude_domains": EXCLUDED_DOMAINS,
             }
-            results = _execute_tavily_request(fallback_payload)
+            results = _execute_tavily_request(fallback_payload, api_keys=api_keys)
         return results
 
     else:
@@ -176,4 +210,4 @@ def search(
             **base_payload,
             "exclude_domains": EXCLUDED_DOMAINS,
         }
-        return _execute_tavily_request(payload)
+        return _execute_tavily_request(payload, api_keys=api_keys)

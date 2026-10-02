@@ -17,7 +17,7 @@ from backend.app.services.search_service import search, SearchError, TAVILY_API_
 def test_llm_chat_missing_key(monkeypatch):
     """Verify that chat() raises LLMError if GROQ_API_KEY is not set."""
     monkeypatch.setattr(settings, "groq_api_key", None)
-    with pytest.raises(LLMError, match="Groq API key is not configured"):
+    with pytest.raises(LLMError, match="No Groq API key configured"):
         chat(system="system prompt", user="user prompt")
 
 
@@ -57,7 +57,7 @@ def test_llm_chat_api_failure(monkeypatch):
 def test_search_missing_key(monkeypatch):
     """Verify that search() raises SearchError if TAVILY_API_KEY is not set."""
     monkeypatch.setattr(settings, "tavily_api_key", None)
-    with pytest.raises(SearchError, match="Tavily API key is not configured"):
+    with pytest.raises(SearchError, match="No Tavily API key configured"):
         search(query="artificial intelligence")
 
 
@@ -97,13 +97,14 @@ def test_search_success(monkeypatch):
 
 @respx.mock
 def test_search_api_failure(monkeypatch):
-    """Verify that search() raises SearchError when Tavily returns an error status."""
+    """Verify that search() raises SearchError when Tavily returns an auth error (all keys exhausted)."""
     monkeypatch.setattr(settings, "tavily_api_key", "mock-tavily-key")
     respx.post(TAVILY_API_URL).mock(
         return_value=httpx.Response(401, text="Unauthorized: Invalid API key")
     )
 
-    with pytest.raises(SearchError, match="Tavily API error"):
+    # 401 triggers key rotation; with only one key, all keys fail -> SearchError raised
+    with pytest.raises(SearchError):
         search(query="test query")
 
 

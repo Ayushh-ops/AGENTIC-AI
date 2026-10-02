@@ -215,6 +215,9 @@ def check_facts(
     sources: List[Dict[str, str]],
     depth_config: Optional[Dict[str, Any]] = None,
     research_type: str = "general",
+    groq_keys: Optional[List[str]] = None,
+    tavily_keys: Optional[List[str]] = None,
+    language: str = "English",
 ) -> List[Dict[str, Any]]:
     """
     Extract key claims from sources and verify their factual support:
@@ -256,6 +259,13 @@ def check_facts(
     max_claims = depth_config.get("max_claims", depth_config.get("claim_cap", 5))
     excerpt_chars = depth_config.get("excerpt_chars", 800)
 
+    # Language instruction for claim statements only (quotes stay verbatim)
+    lang_instruction = (
+        f" Write each claim statement in {language}."
+        if language != "English"
+        else ""
+    )
+
     # -------------------------------------------------------------
     # Step 1: Initial claim extraction pass
     # -------------------------------------------------------------
@@ -267,7 +277,7 @@ def check_facts(
 
     extract_system_prompt = (
         "You are an impartial fact-checking agent. Analyze the provided research topic and source excerpts.\n"
-        f"Extract up to {max_claims} key factual claims.\n"
+        f"Extract up to {max_claims} key factual claims.{lang_instruction}\n"
         "For each claim:\n"
         "1. Identify supporting Source URLs from the provided excerpts that substantiate it.\n"
         "2. Extract a direct evidence excerpt (at least 6 words, max 200 characters) from the source text.\n"
@@ -280,7 +290,12 @@ def check_facts(
     )
     extract_user_prompt = f"Topic: {topic}\n\nRetrieved Sources:\n{sources_summary}"
 
-    raw_extract = chat(system=extract_system_prompt, user=extract_user_prompt, temperature=0.1)
+    raw_extract = chat(
+        system=extract_system_prompt,
+        user=extract_user_prompt,
+        temperature=0.1,
+        api_keys=groq_keys,
+    )
     cleaned_extract = _clean_json_response(raw_extract)
 
     start_b = cleaned_extract.find("[")
@@ -395,7 +410,12 @@ def check_facts(
         )
 
         try:
-            raw_cross = chat(system=cross_system_prompt, user=cross_user_prompt, temperature=0.1)
+            raw_cross = chat(
+                system=cross_system_prompt,
+                user=cross_user_prompt,
+                temperature=0.1,
+                api_keys=groq_keys,
+            )
             cross_data = _parse_cross_check_json(raw_cross)
         except Exception:
             cross_data = {}
@@ -459,6 +479,7 @@ def check_facts(
                     query=claim["statement"],
                     max_results=5,
                     research_type=research_type,
+                    api_keys=tavily_keys,
                 )
                 if not new_results:
                     continue
@@ -477,7 +498,12 @@ def check_facts(
                     for idx, s in enumerate(new_results)
                 )
                 fb_user = f"Claim to verify: {claim['statement']}\n\nNew Sources:\n{fb_sources_text}"
-                raw_fb = chat(system=fb_system, user=fb_user, temperature=0.1)
+                raw_fb = chat(
+                    system=fb_system,
+                    user=fb_user,
+                    temperature=0.1,
+                    api_keys=groq_keys,
+                )
                 fb_items = _parse_fallback_json(raw_fb)
 
                 for item in fb_items:

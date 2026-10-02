@@ -1,7 +1,8 @@
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from backend.app.core.config import settings
 from backend.app.models.research import (
+    ALLOWED_LANGUAGES,
     ResearchRequest,
     ResearchResponse,
     AskRequest,
@@ -11,6 +12,7 @@ from backend.app.services.router import check_canned, classify
 from backend.app.services.llm_service import chat, LLMError, llm_call_counter
 from backend.app.services.search_service import search_call_counter
 from backend.app.workflows.research_workflow import run_research, ResearchError
+from typing import List, Optional
 
 app = FastAPI(
     title="Multi-Agent Research Assistant API",
@@ -28,6 +30,60 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# -------------------------------------------------------------------------
+# Key parsing helpers (request-scoped; keys never stored globally)
+# -------------------------------------------------------------------------
+
+_MAX_KEYS = 10
+_MAX_KEY_LEN = 200
+
+
+def _parse_key_header(raw: Optional[str], header_name: str) -> Optional[List[str]]:
+    """
+    Parse a comma-separated API key header.
+
+    Rules (all checked before use):
+    - At most 10 keys.
+    - Each key trimmed; must not be empty.
+    - Each key max 200 chars, no internal whitespace.
+
+    Returns None when the header is absent.
+    Raises HTTPException(400) on any validation violation.
+    Keys are never included in error messages.
+    """
+    if raw is None:
+        return None
+
+    parts = raw.split(",")
+    if len(parts) > _MAX_KEYS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{header_name} must contain at most {_MAX_KEYS} keys.",
+        )
+
+    keys: List[str] = []
+    for i, part in enumerate(parts, 1):
+        key = part.strip()
+        if not key:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{header_name} key #{i} must not be empty.",
+            )
+        if len(key) > _MAX_KEY_LEN:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{header_name} key #{i} exceeds maximum length of {_MAX_KEY_LEN} characters.",
+            )
+        # No internal whitespace
+        if any(c.isspace() for c in key):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{header_name} key #{i} must not contain whitespace.",
+            )
+        keys.append(key)
+
+    return keys if keys else None
 
 
 @app.get("/health")
@@ -78,13 +134,29 @@ def create_research(request: ResearchRequest) -> ResearchResponse:
     status_code=status.HTTP_200_OK,
     summary="Route user message to chat reply or full multi-agent research pipeline",
 )
-def ask_assistant(request: AskRequest) -> AskResponse:
+def ask_assistant(request: AskRequest, http_request: Request) -> AskResponse:
     """
     Cost-saving router endpoint:
     - Pure small talk returns a canned reply (0 LLM calls, 0 Tavily searches, no API keys needed).
     - Other chat messages make 1 plain LLM call (max_tokens ~150).
     - Research topics execute the full multi-agent research workflow.
+
+    Optional headers:
+    - X-Groq-Keys: comma-separated Groq API keys (max 10, each max 200 chars, no whitespace)
+    - X-Tavily-Keys: comma-separated Tavily API keys (same rules)
+    Keys override .env; on 429/401/403, the next key is tried automatically.
     """
+    # --- Extract and validate per-request API key headers ---
+    groq_keys = _parse_key_header(
+        http_request.headers.get("X-Groq-Keys"), "X-Groq-Keys"
+    )
+    tavily_keys = _parse_key_header(
+        http_request.headers.get("X-Tavily-Keys"), "X-Tavily-Keys"
+    )
+
+    # --- Language validation (already done by Pydantic validator; language is safe) ---
+    language: str = request.language  # always a value from ALLOWED_LANGUAGES
+
     token_llm = llm_call_counter.set([])
     token_search = search_call_counter.set([])
 
@@ -104,10 +176,12 @@ def ask_assistant(request: AskRequest) -> AskResponse:
         mode, reason = classify(request.message)
 
         if mode == "chat":
-            if not settings.groq_api_key:
+            # Determine effective Groq key availability
+            effective_groq = groq_keys or ([settings.groq_api_key] if settings.groq_api_key else [])
+            if not effective_groq:
                 raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="API keys not configured.",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="No API key configured. Add keys in Settings or in the backend .env.",
                 )
             chat_system = (
                 "You are a friendly, concise AI research assistant. You research topics using live web search, "
@@ -121,6 +195,7 @@ def ask_assistant(request: AskRequest) -> AskResponse:
                     user=request.message,
                     temperature=0.3,
                     max_tokens=150,
+                    api_keys=groq_keys,
                 )
                 calls_after = len(llm_call_counter.get() or [])
                 if calls_after == calls_before and llm_call_counter.get() is not None:
@@ -135,21 +210,23 @@ def ask_assistant(request: AskRequest) -> AskResponse:
                 )
             except LLMError as exc:
                 msg = str(exc)
-                if "not configured" in msg.lower():
+                if "not configured" in msg.lower() or "no groq api key" in msg.lower() or "no api key" in msg.lower():
                     raise HTTPException(
-                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                        detail="API keys not configured.",
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="No API key configured. Add keys in Settings or in the backend .env.",
                     ) from exc
                 raise HTTPException(
                     status_code=status.HTTP_502_BAD_GATEWAY,
                     detail=f"Chat error: {msg}",
                 ) from exc
         else:
-            # Research mode
-            if not settings.groq_api_key or not settings.tavily_api_key:
+            # Research mode — check key availability
+            effective_groq = groq_keys or ([settings.groq_api_key] if settings.groq_api_key else [])
+            effective_tavily = tavily_keys or ([settings.tavily_api_key] if settings.tavily_api_key else [])
+            if not effective_groq or not effective_tavily:
                 raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="API keys not configured.",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="No API key configured. Add keys in Settings or in the backend .env.",
                 )
             try:
                 depth_val = (
@@ -166,6 +243,9 @@ def ask_assistant(request: AskRequest) -> AskResponse:
                     topic=request.message,
                     depth=depth_val,
                     research_type=type_val,
+                    groq_keys=groq_keys,
+                    tavily_keys=tavily_keys,
+                    language=language,
                 )
                 return AskResponse(
                     mode="research",
@@ -176,10 +256,10 @@ def ask_assistant(request: AskRequest) -> AskResponse:
                 )
             except ResearchError as exc:
                 msg = str(exc)
-                if "not configured" in msg.lower():
+                if "not configured" in msg.lower() or "no api key" in msg.lower():
                     raise HTTPException(
-                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                        detail="API keys not configured.",
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="No API key configured. Add keys in Settings or in the backend .env.",
                     ) from exc
                 raise HTTPException(
                     status_code=status.HTTP_502_BAD_GATEWAY,
