@@ -237,15 +237,8 @@ void main() {
       'research_history_items_v2': jsonEncode([historyItem.toJson()]),
     });
 
-    await tester.pumpWidget(const ResearchAssistantApp());
+    await tester.pumpWidget(const ResearchAssistantApp(initialShowLanding: false));
     await tester.pumpAndSettle();
-
-    // Open workspace from landing screen
-    final openAppFinder = find.widgetWithText(FilledButton, 'Get started');
-    if (openAppFinder.evaluate().isNotEmpty) {
-      await tester.tap(openAppFinder.first);
-      await tester.pumpAndSettle();
-    }
 
     // Verify sidebar shows formatted label "News - Deep"
     expect(find.text('News - Deep'), findsOneWidget);
@@ -279,14 +272,11 @@ void main() {
         expect(tester.takeException(), isNull,
             reason: 'RenderFlex overflow occurred on landing screen at width $width in $mode');
 
-        final openAppFinder = find.widgetWithText(FilledButton, 'Get started');
-        if (openAppFinder.evaluate().isNotEmpty) {
-          await tester.tap(openAppFinder.first);
-          await tester.pumpAndSettle();
+        await tester.pumpWidget(const ResearchAssistantApp(initialShowLanding: false));
+        await tester.pumpAndSettle();
 
-          expect(tester.takeException(), isNull,
-              reason: 'RenderFlex overflow occurred in workspace at width $width in $mode');
-        }
+        expect(tester.takeException(), isNull,
+            reason: 'RenderFlex overflow occurred in workspace at width $width in $mode');
       }
     }
   });
@@ -306,8 +296,7 @@ void main() {
     expect(landingRow.mainAxisAlignment, MainAxisAlignment.spaceBetween);
 
     // Enter workspace empty state
-    final getStartedFinder = find.widgetWithText(FilledButton, 'Get started');
-    await tester.tap(getStartedFinder.first);
+    await tester.pumpWidget(const ResearchAssistantApp(initialShowLanding: false));
     await tester.pumpAndSettle();
 
     // Workspace empty state composer controls row
@@ -323,11 +312,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
 
     final mockApi = _TestMockApiService();
-    await tester.pumpWidget(ResearchAssistantApp(apiService: mockApi));
-    await tester.pumpAndSettle();
-
-    // Enter workspace empty state
-    await tester.tap(find.widgetWithText(FilledButton, 'Get started').first);
+    await tester.pumpWidget(ResearchAssistantApp(apiService: mockApi, initialShowLanding: false));
     await tester.pumpAndSettle();
 
     // --- 1. EMPTY STATE ---
@@ -402,22 +387,27 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
 
-    await tester.pumpWidget(const ResearchAssistantApp());
+    final mockApi = _TestMockApiService();
+    await tester.pumpWidget(ResearchAssistantApp(apiService: mockApi));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('landing_content')), findsOneWidget);
     expect(find.byKey(const ValueKey('workspace_content')), findsNothing);
 
-    // Tap Get started to transition to workspace
-    await tester.tap(find.widgetWithText(FilledButton, 'Get started').first);
-    await tester.pumpAndSettle();
+    // Enter a topic and tap Research to transition to workspace
+    await tester.enterText(find.byType(TextField), 'Quantum Computing');
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, 'Research'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
 
     expect(find.byKey(const ValueKey('landing_content')), findsNothing);
     expect(find.byKey(const ValueKey('workspace_content')), findsOneWidget);
 
     // Tap wordmark to return to landing
     await tester.tap(find.textContaining('Multi Agent').first);
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
 
     expect(find.byKey(const ValueKey('landing_content')), findsOneWidget);
     expect(find.byKey(const ValueKey('workspace_content')), findsNothing);
@@ -430,11 +420,7 @@ void main() {
       tester.view.physicalSize = Size(width, 900);
       tester.view.devicePixelRatio = 1.0;
 
-      await tester.pumpWidget(ResearchAssistantApp(key: UniqueKey()));
-      await tester.pumpAndSettle();
-
-      // Enter workspace
-      await tester.tap(find.widgetWithText(FilledButton, 'Get started').first);
+      await tester.pumpWidget(ResearchAssistantApp(key: UniqueKey(), initialShowLanding: false));
       await tester.pumpAndSettle();
 
       final hamburgerFinder = find.byTooltip('Toggle sidebar');
@@ -503,11 +489,7 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
 
-    await tester.pumpWidget(const ResearchAssistantApp());
-    await tester.pumpAndSettle();
-
-    // Enter workspace
-    await tester.tap(find.widgetWithText(FilledButton, 'Get started').first);
+    await tester.pumpWidget(const ResearchAssistantApp(initialShowLanding: false));
     await tester.pumpAndSettle();
 
     final hamburgerFinder = find.byTooltip('Toggle sidebar');
@@ -556,7 +538,7 @@ void main() {
     expect(find.text('185/200'), findsOneWidget);
   });
 
-  testWidgets('Get started button right edge is within screen minus padding at widths 360, 768, 1280, 1900 without overflow', (WidgetTester tester) async {
+  testWidgets('Landing top bar right edge (Settings button) is within screen minus padding at widths 360, 768, 1280, 1900 without overflow', (WidgetTester tester) async {
     addTearDown(tester.view.resetPhysicalSize);
 
     const widths = [360.0, 768.0, 1280.0, 1900.0];
@@ -569,24 +551,51 @@ void main() {
 
       expect(tester.takeException(), isNull, reason: 'Overflow occurred on landing screen at width $width');
 
-      final getStartedFinder = find.widgetWithText(FilledButton, 'Get started');
-      expect(getStartedFinder, findsOneWidget);
+      final settingsFinder = find.byTooltip('Settings');
+      expect(settingsFinder, findsOneWidget);
 
-      final getStartedRect = tester.getRect(getStartedFinder);
+      final settingsRect = tester.getRect(settingsFinder);
       final double padding = width >= 1000 ? 24.0 : 16.0;
       final double maxAllowedRight = width - padding;
 
       expect(
-        getStartedRect.right,
+        settingsRect.right,
         lessThanOrEqualTo(maxAllowedRight + 0.5),
-        reason: 'Get started button right edge (${getStartedRect.right}) must be within screen minus padding ($maxAllowedRight) at width $width',
+        reason: 'Settings button right edge (${settingsRect.right}) must be within screen minus padding ($maxAllowedRight) at width $width',
       );
       expect(
-        getStartedRect.right,
+        settingsRect.right,
         closeTo(maxAllowedRight, 1.0),
-        reason: 'Get started button should be right-aligned up to padding at width $width',
+        reason: 'Settings button should be right-aligned up to padding at width $width',
       );
     }
+  });
+
+  testWidgets('Landing hero copy/layout cleanup: eyebrow and Get started removed, subtext updated, Research is single filled button', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1000, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    await tester.pumpWidget(const ResearchAssistantApp());
+    await tester.pumpAndSettle();
+
+    // 1. Eyebrow pill is removed
+    expect(find.text('Live search · cross-checked claims · cited reports'), findsNothing);
+
+    // 2. Get started button is removed
+    expect(find.text('Get started'), findsNothing);
+
+    // 3. Research button is the single filled primary button
+    final filledButtons = find.byType(FilledButton);
+    expect(filledButtons, findsOneWidget);
+    expect(find.descendant(of: filledButtons, matching: find.text('Research')), findsOneWidget);
+
+    // 4. Subtext has "Ask anything." removed and rest preserved
+    expect(find.textContaining('Ask anything.'), findsNothing);
+    expect(
+      find.text('Multi Agent Research Assistant searches the live web, checks each claim against independent sources, and labels how well each one is supported.'),
+      findsOneWidget,
+    );
   });
 }
 

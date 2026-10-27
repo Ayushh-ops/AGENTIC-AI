@@ -237,9 +237,10 @@ void main() {
 
       expect(find.text('API KEYS'), findsNothing);
 
-      // Transition to workspace
-      await tester.tap(find.widgetWithText(FilledButton, 'Get started').first);
-      await tester.pumpAndSettle();
+      // Transition to workspace via entering a topic and tapping Research
+      await tester.enterText(find.byType(TextField), 'Test query');
+      await tester.tap(find.widgetWithText(FilledButton, 'Research'));
+      await tester.pump();
 
       // Top bar gear icon in workspace
       expect(settingsButtonFinder, findsOneWidget);

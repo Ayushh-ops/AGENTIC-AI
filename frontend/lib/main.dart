@@ -33,7 +33,12 @@ void main() async {
 
 class ResearchAssistantApp extends StatelessWidget {
   final ApiService? apiService;
-  const ResearchAssistantApp({super.key, this.apiService});
+  final bool initialShowLanding;
+  const ResearchAssistantApp({
+    super.key,
+    this.apiService,
+    this.initialShowLanding = true,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -46,7 +51,10 @@ class ResearchAssistantApp extends StatelessWidget {
           theme: AppTheme.lightTheme,
           darkTheme: AppTheme.darkTheme,
           themeMode: currentMode,
-          home: HomeScreen(apiService: apiService),
+          home: HomeScreen(
+            apiService: apiService,
+            initialShowLanding: initialShowLanding,
+          ),
         );
       },
     );

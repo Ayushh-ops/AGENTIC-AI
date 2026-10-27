@@ -19,21 +19,23 @@ import '../widgets/settings_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
   final ApiService? apiService;
-  const HomeScreen({super.key, this.apiService});
+  final bool initialShowLanding;
+  const HomeScreen({
+    super.key,
+    this.apiService,
+    this.initialShowLanding = true,
+  });
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen>
-    with SingleTickerProviderStateMixin {
+class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _topicController = TextEditingController();
   final FocusNode _composerFocusNode = FocusNode();
   late final ApiService _apiService = widget.apiService ?? ApiService();
 
-  bool _showLanding = true;
-  late AnimationController _pulseController;
-  late Animation<double> _pulseAnimation;
+  late bool _showLanding;
   Timer? _pipelineTimer;
   int _activePipelineIndex = 0;
   final ScrollController _landingScrollController = ScrollController();
@@ -143,23 +145,17 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void initState() {
     super.initState();
+    _showLanding = widget.initialShowLanding;
     _loadPreferences();
     _loadHistory();
     final bool isRunningInTest =
         WidgetsBinding.instance.runtimeType.toString().contains('Test');
-
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 1),
-    );
-    _pulseAnimation = Tween<double>(begin: 0.35, end: 1.0).animate(_pulseController);
 
     _composerFocusNode.addListener(() {
       if (mounted) setState(() {});
     });
 
     if (!isRunningInTest) {
-      _pulseController.repeat(reverse: true);
       _pipelineTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
         if (mounted && _showLanding) {
           setState(() {
@@ -173,7 +169,6 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void dispose() {
     _composerFocusNode.dispose();
-    _pulseController.dispose();
     _pipelineTimer?.cancel();
     _landingScrollController.dispose();
     _loadingTimer?.cancel();
@@ -779,13 +774,6 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  void _enterWorkspace() {
-    if (!_showLanding) return;
-    setState(() {
-      _showLanding = false;
-    });
-  }
-
   void _returnToLanding() {
     if (_showLanding) return;
     if (_landingScrollController.hasClients) {
@@ -944,8 +932,6 @@ class _HomeScreenState extends State<HomeScreen>
     double screenWidth,
   ) {
     final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
-    final acc = isDark ? AppTheme.darkAcc : AppTheme.lightAcc;
-    final onAcc = isDark ? AppTheme.darkOnAcc : AppTheme.lightOnAcc;
     final bool showTextLinks = screenWidth >= 860;
 
     return Row(
@@ -994,26 +980,6 @@ class _HomeScreenState extends State<HomeScreen>
           size: 38,
           onPressed: () => _showSettingsDialog(context),
         ),
-        const SizedBox(width: 12),
-        FilledButton(
-          onPressed: _enterWorkspace,
-          style: FilledButton.styleFrom(
-            backgroundColor: acc,
-            foregroundColor: onAcc,
-            minimumSize: const Size(0, 42),
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-            ),
-          ),
-          child: Text(
-            'Get started',
-            style: AppTheme.bodyFont(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
       ],
     );
   }
@@ -1024,8 +990,6 @@ class _HomeScreenState extends State<HomeScreen>
     double screenWidth,
     double screenHeight,
   ) {
-    final line = isDark ? AppTheme.darkLines : AppTheme.lightLines;
-    final surface = isDark ? AppTheme.darkSurface : AppTheme.lightSurface;
     final ink = isDark ? AppTheme.darkInk : AppTheme.lightInk;
     final mute = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
     final at = isDark ? AppTheme.darkAt : AppTheme.lightAt;
@@ -1037,42 +1001,6 @@ class _HomeScreenState extends State<HomeScreen>
       padding: EdgeInsets.only(top: topPad, bottom: 40),
       child: Column(
         children: [
-          // Eyebrow pill
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-            decoration: BoxDecoration(
-              color: surface,
-              borderRadius: BorderRadius.circular(AppTheme.radiusPill),
-              border: Border.all(color: line, width: 1.0),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                FadeTransition(
-                  opacity: _pulseAnimation,
-                  child: Container(
-                    width: 7,
-                    height: 7,
-                    decoration: BoxDecoration(
-                      color: at,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Text(
-                    'Live search · cross-checked claims · cited reports',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTheme.bodyFont(fontSize: 13, color: mute),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 22),
-
           // H1 Instrument Serif
           RichText(
             textAlign: TextAlign.center,
@@ -1101,7 +1029,7 @@ class _HomeScreenState extends State<HomeScreen>
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 520),
             child: Text(
-              'Ask anything. Multi Agent Research Assistant searches the live web, checks each claim against independent sources, and labels how well each one is supported.',
+              'Multi Agent Research Assistant searches the live web, checks each claim against independent sources, and labels how well each one is supported.',
               textAlign: TextAlign.center,
               style: AppTheme.bodyFont(
                 fontSize: screenWidth < 700 ? 15 : 16,
